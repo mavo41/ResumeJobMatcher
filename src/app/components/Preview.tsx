@@ -73,7 +73,10 @@ const Preview: React.FC<PreviewProps> = ({ resumeData }) => {
           <h2 className="text-lg font-bold border-b mb-2 uppercase">Work Experience</h2>
           {workExperience.map((exp, index) => (
             <div key={index} className="mb-4">
-              <h3 className="text-base font-semibold">{exp.jobTitle} at {exp.company}, {exp.city}</h3>
+              <div className="flex justify-between items-baseline">
+                <h3 className="text-base font-semibold">{exp.jobTitle}</h3>
+                <span className="text-sm text-gray-600 ml-4">{exp.company}</span>
+              </div>
               <p className="text-sm text-gray-600">{exp.startDate} - {exp.endDate}</p>
               <p className="text-sm">{exp.description}</p>
             </div>
@@ -86,7 +89,10 @@ const Preview: React.FC<PreviewProps> = ({ resumeData }) => {
           <h2 className="text-lg font-bold border-b mb-2 uppercase">Education</h2>
           {education.map((edu, index) => (
             <div key={index} className="mb-4">
-              <h3 className="text-base font-semibold">{edu.degree} from {edu.school}, {edu.city}</h3>
+              <div className="flex justify-between items-baseline">
+                <h3 className="text-base font-semibold">{edu.degree}</h3>
+                <span className="text-sm text-gray-600 ml-4">{edu.school}</span>
+              </div>
               <p className="text-sm text-gray-600">{edu.startDate} - {edu.endDate}</p>
             </div>
           ))}
@@ -132,7 +138,10 @@ const Preview: React.FC<PreviewProps> = ({ resumeData }) => {
           <h2 className="text-lg font-bold border-b mb-2 uppercase">Internships</h2>
           {internships.map((intern, index) => (
             <div key={index} className="mb-4">
-              <h3 className="text-base font-semibold">{intern.jobTitle} at {intern.employer}, {intern.city}</h3>
+              <div className="flex justify-between items-baseline">
+                <h3 className="text-base font-semibold">{intern.jobTitle}</h3>
+                <span className="text-sm text-gray-600 ml-4">{intern.employer}</span>
+              </div>
               <p className="text-sm text-gray-600">{intern.startDate} - {intern.endDate}</p>
               <p className="text-sm">{intern.description}</p>
             </div>

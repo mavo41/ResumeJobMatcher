@@ -1,6 +1,6 @@
 "use client"
 import Link from "next/link"
-import { Upload , HomeIcon, ThumbsUp, ZapIcon, ShieldHalf ,FileArchive  } from "lucide-react";
+import { Upload , HomeIcon, ThumbsUp, ZapIcon, ShieldHalf ,FileArchive, Blocks   } from "lucide-react";
 import {
   ClerkProvider,
   SignInButton,
@@ -25,7 +25,7 @@ const Navbar = () => {
           AI<span className='text-primary'>Resume</span>Matcher
         </span>
       </Link>
-
+      
       {/* Navigation Links */}
       <nav className='flex items-center gap-5'>
         <>
@@ -33,6 +33,13 @@ const Navbar = () => {
           <HomeIcon size={16}/>
           <span>Home</span>
         </Link>
+     
+        <Link href='/resume-builder'
+          className='flex items-center gap-1.5 text-sm hover:text-primary transition-colors'>
+          <Blocks  size={16}/>
+          <span>Resume Builder</span>
+        </Link>
+       
 
         <Link href='/upload'
           className='flex items-center gap-1.5 text-sm hover:text-primary transition-colors'>
