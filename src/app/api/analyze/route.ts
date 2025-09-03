@@ -1,50 +1,45 @@
 // src/app/api/analyze/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import * as pdfjs from "pdfjs-dist";
+import pdf from "pdf-parse";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { normalizeFeedback } from "../../types/feedback";
 import { getFileFromConvexStorage, FileContent } from "../../lib/getFileFromConvexStorage";
 
-// The crucial change for server-side PDF.js usage with Next.js and Turbopack.
-// We provide an absolute path to the worker script, ensuring it is found.
-// We also wrap this in a check to ensure it only runs on the server.
-if (typeof window === 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = require('path').resolve(__dirname, '../../../../../node_modules/pdfjs-dist/build/pdf.worker.min.js');
-}
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 /**
- * Extracts text from a PDF file using pdfjs-dist.
- * @param arrayBuffer The binary data of the PDF file as an ArrayBuffer.
+ * Safely extract text from PDF using pdf-parse.
+ * @param data The binary data of the PDF file as an ArrayBuffer or Buffer.
  * @returns A promise that resolves with the extracted text string.
  */
-async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+async function extractTextFromPDF(data: ArrayBuffer | Buffer | Uint8Array): 
+Promise<string> {
   try {
-    const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-    let text = "";
-    
-    // Loop through all pages and get their text content
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      // Join text items with a space and add a newline at the end of each page
-      text += content.items.map((item: any) => item.str).join(' ') + '\n';
-      page.cleanup(); // Clean up page resources
+    let buffer: Buffer;
+    if (Buffer.isBuffer(data)) {
+      buffer = data;
+    } else if (data instanceof ArrayBuffer) {
+      buffer = Buffer.from(data);
+    } else if (data instanceof Uint8Array) {
+      buffer = Buffer.from(data.buffer);
+    } else {
+      throw new Error("Invalid PDF data type");
     }
-    
-    return text;
-  } catch (error) {
-    console.error("PDF.js extraction error:", error);
-    throw new Error("Failed to extract text from PDF");
+
+    const parsed = await pdf(buffer);
+    return parsed.text || "";
+  } catch (error: any) {
+    console.error("PDF parsing error:", error);
+    throw new Error(`Failed to extract text from PDF: ${error.message}`);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     console.log("[/api/analyze] Request received");
-    
+
     const body = await request.json().catch(() => ({}));
     const { fileStorageId, jobTitle = "", jobDescription = "" } = body ?? {};
 
@@ -56,6 +51,7 @@ export async function POST(request: NextRequest) {
     let fileData: FileContent;
     try {
       fileData = await getFileFromConvexStorage(fileStorageId as Id<"_storage">);
+      console.log("[/api/analyze] File fetched from Convex");
     } catch (err: any) {
       console.error("[/api/analyze] getFileFromConvexStorage failed:", err);
       return NextResponse.json({ 
@@ -67,10 +63,11 @@ export async function POST(request: NextRequest) {
     let resumeText = "";
     if (fileData.type === "text") {
       resumeText = fileData.data;
-    } else {
+    } else if (fileData.type === "arrayBuffer") {
       try {
         // Pass the ArrayBuffer directly to the PDF extraction function
         resumeText = await extractTextFromPDF(fileData.data);
+        console.log("[/api/analyze] PDF text extracted successfully.");
       } catch (err: any) {
         console.error("[/api/analyze] PDF extraction failed:", err);
         return NextResponse.json({ 
@@ -78,6 +75,11 @@ export async function POST(request: NextRequest) {
           details: err?.message ?? String(err) 
         }, { status: 500 });
       }
+    } else {
+      return NextResponse.json(
+        { error: "Unsupported file type" },
+        { status: 400 }
+      );
     }
 
     if (!resumeText || resumeText.trim().length < 50) {
@@ -91,7 +93,7 @@ export async function POST(request: NextRequest) {
     let feedbackText = "";
     let analyzerUsed = "gemini-pro";
 
-    if (!GEMINI_KEY) {
+    if (!GEMINI_KEY) {      
       console.warn("Gemini API key not configured");
       analyzerUsed = "fallback";
       feedbackText = JSON.stringify({
@@ -101,12 +103,13 @@ export async function POST(request: NextRequest) {
       });
     } else {
       try {
+        console.log("[/api/analyze] Calling Gemini API...");
         const genAI = new GoogleGenerativeAI(GEMINI_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         const prompt = `Analyze this resume for ${jobTitle} at ${jobTitle}. Job: ${jobDescription}. Resume: ${resumeText.substring(0, 8000)}. Return JSON.`;
-        
         const result = await model.generateContent(prompt);
         feedbackText = result.response.text();
+        console.log("[/api/analyze] Gemini analysis successful.");
       } catch (err: any) {
         console.error("Gemini error:", err);
         analyzerUsed = "fallback";
@@ -122,17 +125,17 @@ export async function POST(request: NextRequest) {
     try {
       feedback = normalizeFeedback(feedbackText);
     } catch (err: any) {
-      console.error("Normalization error:", err);
+      console.error("Feedback normalization error:", err);
       feedback = {
-        summary: "Analysis completed",
+        summary: "Analysis completed, but feedback format is unexpected.",
         raw: feedbackText.substring(0, 1000)
       };
     }
-
+    console.log("[/api/analyze] Analysis complete, sending response.");
     return NextResponse.json({ feedback, analyzer: analyzerUsed });
 
   } catch (err: any) {
-    console.error("Unexpected error:", err);
+    console.error("Unexpected error in /api/analyze:", err);
     return NextResponse.json({ 
       error: "Internal server error",
       details: err?.message ?? String(err)

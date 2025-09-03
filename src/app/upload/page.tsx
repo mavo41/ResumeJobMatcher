@@ -4,10 +4,10 @@ import { FormEvent, useState } from "react";
 import Navbar from "../components/Navbar";
 import FileUploader from "../components/FileUploader";
 import { useConvexFileUploader } from "../lib/convexUpload";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useRouter } from "next/navigation";
-import { getFileFromConvexStorage, FileContent } from "../lib/getFileFromConvexStorage";
+import { getFileFromConvexStorage,} from "../lib/getFileFromConvexStorage";
 import type { Id } from "../../../convex/_generated/dataModel";
 import Link from "next/link";
 import { X } from "lucide-react";
@@ -28,6 +28,7 @@ export default function UploadPage() {
   const createResume = useMutation(api.resumes.createResume);
   const updateResumeFeedback = useMutation(api.resumes.updateResumeFeedback);
   const resumes = useQuery(api.resumes.getMyResumes) ?? [];
+  const getFileUrl = useAction(api.resumes.getFileUrl); // For downloading
 
   // File selector
   const handleFileSelect = (f: File | null) => setFile(f);
@@ -87,8 +88,9 @@ export default function UploadPage() {
           jobDescription,
         }),
       });
-      const data = await aiRes.json();
 
+      const data = await aiRes.json();
+console.log("the data is here",data)
       if (!aiRes.ok) {
         throw new Error(data.error || "AI analysis failed");
       }
@@ -162,18 +164,19 @@ export default function UploadPage() {
         blob = new Blob([fileContent.data], { type: "application/octet-stream" });
       }
 
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "resume.pdf";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      const url = await getFileUrl({ storageId });
+      if (url) {
+        // Open the file in a new tab for the user to download
+        window.open(url, "_blank");
+      } else {
+        alert("Could not get download URL.");
+      }
     } catch (err) {
       console.error("Download failed:", err);
+      alert("Download failed. See console for details.");
     }
   };
+
 
   const archiveResume = useMutation(api.resumes.archiveResume);
   const deleteResume = useMutation(api.resumes.deleteResume);

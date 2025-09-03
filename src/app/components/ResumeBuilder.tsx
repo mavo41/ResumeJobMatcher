@@ -1,10 +1,11 @@
 // components/ResumeBuilder.tsx
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React from 'react';
 import LeftPanel from './LeftPanel';
 import RightPanel from './RightPanel';
-import html2pdf from 'html2pdf.js';
+import { useResumeContext } from '../context/ResumeContext';
+
 
 export interface ResumeData {
   personalInfo: {
@@ -89,34 +90,18 @@ const initialData: ResumeData = {
 };
 
 const ResumeBuilder: React.FC = () => {
-  const [resumeData, setResumeData] = useState<ResumeData>(initialData);
-  const previewRef = useRef<HTMLDivElement>(null); // Ref to access the preview element
+    const { resumeData, updateResumeData, downloadResume, previewRef } = useResumeContext();
+  
+   const updateData = (section: keyof ResumeData, data: any) => {
+     updateResumeData(section, data);
+   };
 
-  const updateData = (section: keyof ResumeData, data: any) => {
-    setResumeData((prev) => ({ ...prev, [section]: data }));
-  };
-
-  const downloadResume = () => {
-    const element = previewRef.current;
-    if (element) {
-      html2pdf()
-        .from(element)
-        .set({
-          margin: 10,
-          filename: 'resume.pdf',
-          html2canvas: { scale: 2, useCORS: true }, // Added useCORS for external resources
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        })
-        .save()
-        .catch((error) => console.error('PDF generation failed:', error));
-    }
-  };
-
+  
   return (
     <div className="flex h-screen overflow-hidden">
       <LeftPanel resumeData={resumeData} updateData={updateData} />
       <RightPanel resumeData={resumeData} downloadResume={downloadResume} />
-      {/* Pass ref to Preview via RightPanel */}
+      {/* Hidden printable preview via RightPanel */}
       <div ref={previewRef} id="preview" className="hidden">
         <RightPanel resumeData={resumeData} downloadResume={downloadResume} />
       </div>
