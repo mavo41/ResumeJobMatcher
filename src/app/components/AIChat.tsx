@@ -97,38 +97,40 @@ const AIChat = () => {
   };
 
   return (
-    <div className="flex flex-col md:flex-row h-full">
-      {/* Chat box */}
-      <div className="w-full md:w-1/2 p-4 border-b md:border-b-0 md:border-r">
-        <ChatContainer>
-          <MessageList>
-            {messages.map((msg, idx) => (
-              <Message
-                key={idx}
-                model={{
-                  message: msg.content,
-                  direction: msg.role === "user" ? "outgoing" : "incoming",
-                  position: 'single',
-                }}
-              />
-            ))}
-            {isLoading && (
-              <Message
-                model={{ message: "Thinking...", direction: "incoming", position: 'single' }}
-              />
-            )}
-          </MessageList>
-          
-          <MessageInput
-            onSend={handleSend}
-            placeholder="Type your message here"
-            style={{ backgroundColor: '#f5f5f5', color: '#333', border: '1px solid #ccc', borderRadius: '4px' }}
-          />
-        </ChatContainer>
-      </div>
+    <div className="flex flex-col md:flex-row h-full w-full">
+      {/* Chat box */}  {/*"w-full md:w-1/2 p-4 border-b md:border-b-0 md:border-r*w-full bg-card/90 backdrop-blur-sm border border-border rounded-xl p-4 mb-8 h-64 overflow-y-auto transition-all duration-300 scroll-smooth"*/}
+      <div
+  className="w-20% bg-card/90 backdrop-blur-sm border border-border rounded-xl p-4 mb-8 h-64 overflow-y-auto transition-all duration-300 scroll-smooth"
+>
+  <ChatContainer>
+    <MessageList>
+      {messages.map((msg, idx) => (
+        <Message
+          className="font-semibold text-s text-muted-foreground mb-1"
+          key={idx}
+          model={{
+            message: msg.content,
+            direction: msg.role === "user" ? "outgoing" : "incoming",
+            position: 'single',
+          }}
+        />
+      ))}
+      {isLoading && (
+        <Message
+          model={{ message: "Thinking...", direction: "incoming", position: 'single' }}
+        />
+      )}
+    </MessageList>
+    <MessageInput
+      onSend={handleSend}
+      placeholder="Type your message here"
+      style={{ backgroundColor: '#c2edf3ff', color: '#000000ff', border: '1px solid #ccc', borderRadius: '4px' }}
+    />
+  </ChatContainer>
+</div>
 
       {/* Live preview */}
-      <div className="w-full md:w-1/2 p-4 overflow-y-auto">
+      <div className="w-full  p-4 overflow-y-auto">
         <Preview resumeData={resumeData} />
         {/* Temporary placeholder until downloadResume is lifted to context */}
         <button

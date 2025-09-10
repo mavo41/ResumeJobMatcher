@@ -1,7 +1,7 @@
 // components/forms/EducationForm.tsx
 import React, { useState } from 'react';
 import { GraduationCap, Eye, ChevronDown } from 'lucide-react';
-
+  
 interface EduEntry {
   school: string;
   degree: string;

@@ -81,7 +81,7 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({ data, onChange }) =
             name="website"
             value={data.website}
             onChange={handleChange}
-            placeholder="Website"
+            placeholder="Website:linkedin/github/portfolio"
             className="w-full p-2 border rounded mt-4"
           />
         </>

@@ -31,7 +31,7 @@ export default function RootLayout({
   return (
    
       <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-  <body className="antialiased">
+  <body className="antialiased" id="__next">
  <ConvexClerkProvider>
           <Navbar />
 

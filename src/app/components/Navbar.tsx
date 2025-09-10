@@ -1,6 +1,6 @@
 "use client"
 import Link from "next/link"
-import { Upload , HomeIcon, ThumbsUp, ZapIcon, ShieldHalf ,FileArchive, Blocks, LampDesk    } from "lucide-react";
+import { Upload , HomeIcon, ThumbsUp, ZapIcon, ShieldHalf ,FileArchive, Blocks, LampDesk, ClipboardList    } from "lucide-react";
 import {
   ClerkProvider,
   SignInButton,
@@ -52,7 +52,11 @@ const Navbar = () => {
           <LampDesk   size={16}/>
           <span>JobMatcher</span>
         </Link>
-       
+       <Link href='/jobboard'
+          className='flex items-center gap-1.5 text-sm hover:text-primary transition-colors'>
+          <ClipboardList    size={16}/>
+          <span>JobBoard</span>
+        </Link>
 
         <Link href='/results'
           className='flex items-center gap-1.5 text-sm hover:text-primary transition-colors'>

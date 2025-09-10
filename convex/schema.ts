@@ -49,7 +49,7 @@ export default defineSchema({
       v.literal("active"),
       v.literal("archived"),
       v.literal("deleted")
-    ), // 👈 enum constraint
+    ), //  enum constraint
   })
   
   // Index to query resumes by user
@@ -77,7 +77,7 @@ export default defineSchema({
       v.literal("draft")
     ),
      tag: v.optional(v.union(v.literal("MATCH"), v.literal("RECOMMENDED"))),
-    userId: v.string(),
+    userId: v.string(), // who inserted the job (system or user)
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_status", ["status"]),
@@ -97,9 +97,45 @@ export default defineSchema({
     notes: v.optional(v.string()),
     savedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_userId", ["userId"])
+  })
+    .index("by_userId", ["userId"])
     .index("by_jobId", ["jobId"]),
 
+   
+   
+    // Job Source Logs (for caching / rate limiting)
+  jobSourceLogs: defineTable({
+    source: v.string(),    // "remoteok" | "remotive" | "greenhouse"
+    lastFetched: v.number(),
+    jobCount: v.number(),
+  }).index("by_source", ["source"]),
+
+
+   //  Greenhouse companies list (dynamic instead of hardcoding)
+
+    greenhouseCompanies: defineTable({
+    handle: v.string(),  // e.g. "openai"
+    name: v.string(),    // e.g. "OpenAI"
+    url: v.optional(v.string()),
+    addedAt: v.number(), // timestamp in ms
+  }),
+
+  
+  meta: defineTable({
+    key: v.string(),       // e.g. "lastFetched"
+    value: v.string(),     // generic stringified value
+    updatedAt: v.number(), // timestamp in ms
+  }),
+
+    // light-weight logs of fetch runs
+    jobFetchLogs: defineTable({
+    count: v.number(),
+    warnings: v.array(v.string()),
+    timestamp: v.number(),
+  }),
+
 });
+
+
 
 
