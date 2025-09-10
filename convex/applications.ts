@@ -72,10 +72,31 @@ export const updateApplicationStatus = mutation({
   },
 });
 
-// Delete an application
+// // Delete an application
+// export const deleteApplication = mutation({
+//   args: { applicationId: v.id("applications") },
+//   handler: async (ctx, {  applicationId }) => {
+//     await ctx.db.delete(applicationId);
+//   },
+// });
+
 export const deleteApplication = mutation({
-  args: { applicationId: v.id("applications") },
-  handler: async (ctx, { applicationId }) => {
+  args: {
+    applicationId: v.id("applications"),
+  },
+  handler: async (ctx, args) => {
+    const { applicationId } = args;
+    // You should add an authorization check here to ensure the user is allowed to delete this application.
+    // For example:
+    // const identity = await ctx.auth.getUserIdentity();
+    // if (!identity) {
+    //   throw new Error("Unauthorized");
+    // }
+    // const existingApp = await ctx.db.get(applicationId);
+    // if (existingApp?.userId !== identity.subject) {
+    //   throw new Error("Unauthorized");
+    // }
+
     await ctx.db.delete(applicationId);
   },
 });

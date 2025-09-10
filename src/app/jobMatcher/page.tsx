@@ -9,7 +9,7 @@ import { Input } from "../components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import Link from 'next/link';
-import { Clock, MapPin } from 'lucide-react';
+import { Clock, MapPin, ZapIcon } from 'lucide-react';
 
 
 interface Job {
@@ -98,7 +98,7 @@ export default function JobsPage() {
                 </div>
         
                 {/* Progress Tracker */}
-                <Card>
+                <Card className='w-full max-w mt-6 space-y-100'>
                   <CardContent className="p-4 space-y-2">
                     <p className="text-sm font-medium text-gray-700">
                       Application Progress ({applicationProgress.applied}/{totalApplications} applied)
@@ -116,7 +116,7 @@ export default function JobsPage() {
       </section>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-1 sm:px-5 lg:px-8">
+      <div className="max-w-7xl mx-auto px-1 sm:px-5 lg:px-8 space-y-8">
          <h2 className="text-2xl font-bold mb-6">Job Matches ({filteredJobs.length})</h2>
         <div className="flex flex-col lg:flex-row gap-8 p-4 "> {/* Full width container */}
           {/* Job Listings */}
@@ -145,7 +145,8 @@ export default function JobsPage() {
                         />
                       ) : (
                         <div className="w-12 h-12 flex-shrink-0 bg-gray-200 rounded-md flex items-center justify-center">
-                          <span className="text-gray-500 text-xs">No Logo</span>
+                          <span className="text-gray-500 text-xs">
+                          <ZapIcon className="w-4 h-4 text-blue-500 outline-blue-300 outline-2 outline-offset-1" /></span>
                         </div>
                       )}
                         <h3 className="font-semibold text-lg text-gray-900">{job.title}</h3>

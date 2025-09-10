@@ -6,6 +6,7 @@ import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { format } from "date-fns";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { X, MapPin, Clock } from "lucide-react";
 
 // Interfaces based on Convex schema
@@ -38,10 +39,31 @@ export default function JobMatcher() {
   const userApplications = useQuery(api.applications.getUserApplications, { userId: "user1" }) || [];
   const createApplication = useMutation(api.applications.createApplication);
   const updateApplicationStatus = useMutation(api.applications.updateApplicationStatus);
+  const deleteApplication = useMutation(api.applications.deleteApplication);
 
   // State for job details panel
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  // New state for current filter
+  const [currentFilter, setCurrentFilter] = useState<string>("Bookmarked");
+
+  const router = useRouter();
+
+  // Status map for filtering (category to status)
+  const statusMap: Record<string, string> = {
+    Shortlisted: "shortlisted",
+    Applied: "applied",
+    Interviewing: "interviewing",
+    Offers: "offer",
+    Rejected: "rejected",
+    Accepted: "accepted",
+  };
+
+  // Filtered applications based on currentFilter
+  const filteredApplications = currentFilter === "Bookmarked"
+    ? userApplications
+    : userApplications.filter((a: Application) => a.status === statusMap[currentFilter]);
 
   // Category counts
   const counts = {
@@ -82,6 +104,14 @@ export default function JobMatcher() {
     });
   };
 
+  const handleUpdateStatus = async (applicationId: Id<"applications">, status: Application["status"]) => {
+    await updateApplicationStatus({
+      applicationId,
+      status,
+      notes: undefined,
+    });
+  };
+
   const handleUpdateNotes = async (applicationId: Id<"applications">, notes: string) => {
     const app = userApplications.find((a: Application) => a._id === applicationId);
     await updateApplicationStatus({
@@ -97,10 +127,22 @@ export default function JobMatcher() {
     setIsDetailsOpen(true);
   };
 
+  const handleRemoveJob = async (applicationId: Id<"applications">) => {
+    await deleteApplication({ applicationId });
+  };
+
+  // Handle stat card click
+  const handleCardClick = (category: string) => {
+    if (category === "Recommended") {
+      router.push("/jobMatcher");
+    } else {
+      setCurrentFilter(category);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 font-sans p-4 md:p-6">
       <div className="flex flex-col lg:flex-row gap-6">
-
         {/* Main Content Area (Job Board) */}
         <div className="w-full lg:w-3/4">
           <h1 className="text-2xl font-bold mb-4">Job Tracker Board</h1>
@@ -111,6 +153,7 @@ export default function JobMatcher() {
               <div
                 key={category}
                 className="bg-white p-4 rounded-lg shadow hover:bg-blue-50 cursor-pointer transition"
+                onClick={() => handleCardClick(category)}
               >
                 <h2 className="text-lg font-semibold">{category}</h2>
                 <p className="text-2xl">{count}</p>
@@ -135,7 +178,7 @@ export default function JobMatcher() {
                   </tr>
                 </thead>
                 <tbody>
-                  {userApplications.map((app: Application) => {
+                  {filteredApplications.map((app: Application) => {
                     const job = jobs.page.find((j: Job) => j._id === app.jobId);
                     if (!job) return null;
                     return (
@@ -146,10 +189,10 @@ export default function JobMatcher() {
                         <td className="p-2">
                           <select
                             value={app.status}
-                            onChange={(e) => handleReject(app._id)}
+                            onChange={(e) => handleUpdateStatus(app._id, e.target.value as Application["status"])}
                             className="border rounded p-1"
                           >
-                            {["shortlisted", "applied", "interviewing", "offer"].map(status => (
+                            {["shortlisted", "applied", "interviewing", "offer", "rejected", "accepted"].map(status => (
                               <option key={status} value={status}>
                                 {status.charAt(0).toUpperCase() + status.slice(1)}
                               </option>
@@ -185,6 +228,16 @@ export default function JobMatcher() {
                           >
                             Reject
                           </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveJob(app._id);
+                            }}
+                            className="text-gray-500 hover:text-red-500 p-1"
+                            title="Remove Job"
+                          >
+                            <X size={20} />
+                          </button>
                         </td>
                       </tr>
                     );
@@ -199,7 +252,7 @@ export default function JobMatcher() {
         <div className="w-full lg:w-1/4 bg-white p-4 rounded-lg shadow-lg flex flex-col">
           <h2 className="text-xl font-bold mb-4">Job Matches For You</h2>
           <div className="flex-1 overflow-y-auto space-y-4 pr-2 -mr-2"> {/* Custom scrollbar */}
-            {jobs.page.slice(0, 5).map((job: Job) => (
+            {jobs.page.slice(0, 7).map((job: Job) => (
               <div
                 key={job._id}
                 className="p-3 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 cursor-pointer transition border border-gray-200"
@@ -210,8 +263,8 @@ export default function JobMatcher() {
                     <h3 className="text-md font-semibold">{job.title}</h3>
                     <p className="text-gray-600 text-sm">{job.company}</p>
                     <p className="text-gray-500 text-xs flex items-center">
-                       <MapPin size={12} className="inline mr-1" />
-                       {job.location}
+                      <MapPin size={12} className="inline mr-1" />
+                      {job.location}
                     </p>
                   </div>
                   <span
