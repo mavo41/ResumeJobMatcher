@@ -1,53 +1,116 @@
+import { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 // Create a new job (auth-aware)
 export const createJob = mutation({
-  args: {
-    logoUrl: v.optional(v.string()),
+  args: {    
+    userId: v.string(), 
+    logoUrl: v.optional(v.id("_storage")),
     title: v.string(),
     company: v.string(),
     location: v.string(),
-    postedAt: v.number(),
+    jobType: v.string(),
     description: v.string(),
-    status: v.union(v.literal("open"), v.literal("closed"), v.literal("draft")),
+    requirements: v.optional(v.array(v.string())),
+    salaryRange: v.optional(v.string()),
+    status: v.union(
+      v.literal("open"), 
+      v.literal("closed"), 
+      v.literal("draft"),),
     tag: v.optional(v.union(v.literal("MATCH"), v.literal("RECOMMENDED"))),
-    userId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    const userId = identity?.subject || args.userId || "system";
+   if (!identity || identity.subject !== args.userId) {
+      throw new Error("Unauthorized");
+      
+    }
+   //EMPLOYER VERIFICATION - Only VERIFIED employers may publish jobs
+    const employer = await ctx.db
+  .query("employers")
+  .withIndex("by_userId", (q) =>
+    q.eq("userId", args.userId)
+  )
+  .unique();
+
+  if (!employer) {
+  throw new Error("Employer profile not found");
+}
+    
+      //- If employer is NOT verified → force job to DRAFT
+     // - Frontend publish requests are ignored
+
+        const finalStatus =
+  employer.verified && args.status === "open"
+    ? "open"
+    : "draft";
 
     const now = Date.now();
 
-       // Check for existing job to avoid duplicates
+     // Check for existing job to avoid duplicates
     const existingJob = await ctx.db
       .query("jobs")
       .filter((q) =>
         q.and(
           q.eq(q.field("title"), args.title),
           q.eq(q.field("company"), args.company),
-          q.eq(q.field("location"), args.location)
+          q.eq(q.field("location"), args.location),
+          q.eq(q.field("employerId"), identity.subject)
         )
       )
       .first();
 
     if (existingJob) {
-      console.log(`Skipping duplicate job: ${args.title} at ${args.company}`);
-      return { status: "skipped", reason: "duplicate", id: existingJob._id };
+      throw new Error(`Duplicate job: ${args.title} at ${args.company}`);
+      //          return { status: "skipped", reason: "duplicate", id: existingJob._id };
+
     }
-    
-    return await ctx.db.insert("jobs", {
-      ...args,
-      userId,
-      createdAt: args.createdAt ?? now,
-      updatedAt: args.updatedAt ?? now,
-      postedAt: args.postedAt ?? now,
+
+    const jobId = await ctx.db.insert("jobs", {
+      title: args.title,
+      company: employer.companyName,
+      description: args.description,
+      location: args.location,
+      jobType: args.jobType,
+      requirements: args.requirements,
+      salaryRange: args.salaryRange,
+      status: finalStatus,          //  enforced by backend
+      employerId: args.userId,
+
+      createdAt: now,
+      updatedAt: now,
+      postedAt:  now,
+      isRemoved: false,
+      removedAt: undefined,
+      removedBy: undefined,
+      removalReason: undefined,
+
+
     });
+    await ctx.db.insert("auditLogs", {
+      actorId: identity.subject,
+      action: "CREATE_JOB",
+      entity: "job",
+      entityId: jobId,
+      metadata: {
+        requestedStatus: args.status,
+        finalStatus,
+        employerVerified: employer.verified,
+      },
+      createdAt: now,
+    });
+
+    return {
+      success: true,
+      jobId,
+      status: finalStatus,
+    };
   },
 });
+  
 
 // Get open jobs
 export const getOpenJobs = query({
@@ -56,6 +119,7 @@ export const getOpenJobs = query({
     const jobs = await ctx.db
       .query("jobs")
       .withIndex("by_status", (q) => q.eq("status", "open"))
+      .filter(q => q.eq(q.field("isRemoved"), false))
       .order("desc")
       .paginate({
         cursor: args.cursor ?? null, 
@@ -66,6 +130,63 @@ export const getOpenJobs = query({
   },
 });
 
+
+// Get employer jobs with application counts
+export const getEmployerJobs = query({
+  args: { employerId: v.string() },
+  handler: async (ctx, { employerId }) => {
+    const jobs = await ctx.db
+      .query("jobs")
+      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .collect();
+
+    // Get application counts for each job
+    const jobsWithCounts = await Promise.all(
+      jobs.map(async (job) => {
+        const applications = await ctx.db
+          .query("applications")
+          .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+          .collect();
+        
+        return {
+          ...job,
+          applications: applications.length,
+        };
+      })
+    );
+
+    return jobsWithCounts.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+// Get job stats with application counts
+export const getJobStats = query({
+  args: { employerId: v.string() },
+  handler: async (ctx, { employerId }) => {
+    const jobs = await ctx.db
+      .query("jobs")
+      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .collect();
+    
+    // Count applications for each job
+    let totalApplications = 0;
+    for (const job of jobs) {
+      const apps = await ctx.db
+        .query("applications")
+        .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+        .collect();
+      totalApplications += apps.length;
+    }
+    
+    const activeJobs = jobs.filter(j => j.status === "open").length;
+    
+    return {
+      activeJobs,
+      totalApplications,
+      totalJobs: jobs.length,
+    };
+  },
+});
 
 
 // Get single job BY ID
@@ -79,28 +200,72 @@ export const getJobById = query({
 // Update job
 export const updateJob = mutation({
   args: {
-    jobId: v.id("jobs"),
-    logoUrl: v.optional(v.string()),
+    jobId: v.string(), // Change from v.id("jobs") to v.string()
+    logoUrl: v.optional(v.id("_storage")),
     title: v.optional(v.string()),
     company: v.optional(v.string()),
     location: v.optional(v.string()),
-    postedAt: v.optional(v.number()),
+    jobType: v.optional(v.string()), // ADD THIS
     description: v.optional(v.string()),
+    requirements: v.optional(v.array(v.string())),
+    salaryRange: v.optional(v.string()),
+    postedAt: v.optional(v.number()),
     status: v.optional(v.union(v.literal("open"), v.literal("closed"), v.literal("draft"))),
     tag: v.optional(v.union(v.literal("MATCH"), v.literal("RECOMMENDED"))),
   },
   handler: async (ctx, { jobId, ...updates }) => {
-    const job = await ctx.db.get(jobId);
-    if (!job) throw new Error("Job not found");
-    await ctx.db.patch(jobId, { ...updates, updatedAt: Date.now() });
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthenticated");
+    }
+
+    const job = await ctx.db.get(jobId as Id<"jobs">);
+    if (!job || job.employerId !== identity.subject) {
+      throw new Error("Job not found or not owned by user");
+    }
+    await ctx.db.patch(jobId as Id<"jobs">, { ...updates, updatedAt: Date.now() });
   },
 });
 
 // Delete job
 export const deleteJob = mutation({
-  args: { jobId: v.id("jobs") },
+  args: { 
+    jobId: v.string() // Change from v.id("jobs") to v.string()
+  },
   handler: async (ctx, { jobId }) => {
-    await ctx.db.delete(jobId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthenticated");
+    }
+    
+    // Convert string to Id
+    const job = await ctx.db.get(jobId as Id<"jobs">);
+    if (!job || job.employerId !== identity.subject) {
+      throw new Error("Job not found or not owned by user");
+    }
+    
+    // Soft delete
+    await ctx.db.patch(jobId as Id<"jobs">, {
+      isRemoved: true,
+      removedAt: Date.now(),
+      removedBy: identity.subject,
+      status: "closed",
+    });
+  },
+});
+
+
+
+export const generateUploadUrl = mutation({
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const getFileUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }) => {
+    return await ctx.storage.getUrl(storageId);
   },
 });
 
@@ -217,11 +382,14 @@ export const fetchAllSources = mutation({
 
     // Helper to insert normalized job (ensures required timestamps are present)
     async function safeInsertJob(normalized: {
-      logoUrl?: string;
+      logoUrl?: Id<"_storage">;
       title: string;
       company: string;
       location: string;
       description: string;
+      requirements?: string[];
+      salaryRange?: string;
+
       status?: "open" | "closed" | "draft";
       tag?: "MATCH" | "RECOMMENDED";
     }) {
@@ -234,11 +402,18 @@ export const fetchAllSources = mutation({
         location: normalized.location,
         postedAt: nowTs,
         description: normalized.description,
+        requirements: normalized.requirements ?? [],
+        salaryRange: normalized.salaryRange,
         status: normalized.status ?? "open",
         tag: normalized.tag ?? "RECOMMENDED",
-        userId,
+        employerId: "", // system user
         createdAt: nowTs,
         updatedAt: nowTs,
+        isRemoved: false,
+        removedAt: undefined,
+        removedBy: undefined,
+        removalReason: undefined,
+
       });
       inserted++;
        } catch (e: any) {
@@ -390,6 +565,30 @@ export const fetchAllSources = mutation({
     await ctx.db.insert("jobFetchLogs", { count: inserted, warnings, timestamp: Date.now() }).catch(() => { /* ignore */ });
 
     return { status: "ok", inserted, warnings };
+  },
+});
+
+
+export const getEmployerJobModerationStatus = query({
+  args: {
+    jobId: v.id("jobs"),
+  },
+  handler: async (ctx, { jobId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthenticated");
+
+    const job = await ctx.db.get(jobId);
+    if (!job || job.employerId !== identity.subject) {
+      throw new Error("Unauthorized");
+    }
+
+    // Only expose moderation fields (NOT admin identity)
+    return {
+      isRemoved: job.isRemoved,
+      removalReason: job.removalReason ?? null,
+      removedAt: job.removedAt ?? null,
+      status: job.status,
+    };
   },
 });
 

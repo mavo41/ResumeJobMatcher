@@ -100,7 +100,7 @@ const AIChat = () => {
     <div className="flex flex-col md:flex-row h-full w-full">
       {/* Chat box */}  {/*"w-full md:w-1/2 p-4 border-b md:border-b-0 md:border-r*w-full bg-card/90 backdrop-blur-sm border border-border rounded-xl p-4 mb-8 h-64 overflow-y-auto transition-all duration-300 scroll-smooth"*/}
       <div
-  className="w-20% bg-card/90 backdrop-blur-sm border border-border rounded-xl p-4 mb-8 h-64 overflow-y-auto transition-all duration-300 scroll-smooth"
+  className="w-1% bg-card/90 backdrop-blur-sm border border-border rounded-xl p-4 mb-8 h-100 overflow-y-auto transition-all duration-300 scroll-smooth"
 >
   <ChatContainer>
     <MessageList>

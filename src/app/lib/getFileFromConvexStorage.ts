@@ -18,16 +18,30 @@ export async function getFileFromConvexStorage(
     console.log("[getFileFromConvexStorage] Signed URL received:", url);
 
     if (!url) throw new Error("File not found in Convex storage (getFileUrl returned null)");
+    console.log("[getFileFromConvexStorage] Fetching file from URL:", url);
 
     // 2) Fetch the file from the signed URL
     const res = await fetch(url);
+    console.log("[getFileFromConvexStorage] Fetch response:", {
+      status: res.status,
+      statusText: res.statusText,
+      contentType: res.headers.get("content-type"),
+    });
+
     if (!res.ok) {
       const bodySnippet = await res.text().catch(() => "");
+      console.error("[getFileFromConvexStorage] Fetch failed:", {
+        status: res.status,
+        statusText: res.statusText,
+        bodySnippet: bodySnippet.slice(0, 200),
+      });
       throw new Error(`Failed to fetch file from signed URL: ${res.status} ${res.statusText} ${bodySnippet.slice(0, 200)}`);
     }
 
     // 3) Check content-type
     const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    console.log("[getFileFromConvexStorage] Content-Type:", contentType);
+
 
     // 4) Read as text when it looks like a text file
     if (
@@ -38,6 +52,8 @@ export async function getFileFromConvexStorage(
     ) {
       const text = await res.text();
       const trimmed = text.trim().slice(0, 20).toLowerCase();
+            console.log("[getFileFromConvexStorage] Response snippet:", trimmed);
+
       // Detect HTML error pages
       if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
         throw new Error(`Convex returned HTML instead of file content. Snippet: ${text.substring(0, 200)}`);

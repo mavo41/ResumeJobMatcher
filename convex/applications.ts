@@ -13,16 +13,35 @@ export const createApplication = mutation({
       v.literal("interviewing"),
       v.literal("offer"),
       v.literal("rejected"),
-      v.literal("accepted")
+      v.literal("accepted"),
+      
     ),
     notes: v.optional(v.string()),
+    candidateName: v.optional(v.string()),
+    candidateEmail: v.optional(v.string()),
+    candidatePhone: v.optional(v.string()),
+    candidateLocation: v.optional(v.string()),
+    skills: v.optional(v.array(v.string())),
+    experience: v.optional(v.number()),
+    resumeFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     return await ctx.db.insert("applications", {
-      ...args,
+      userId: args.userId,
+      jobId: args.jobId,
+      status: args.status,
+      notes: args.notes,
       savedAt: now,
       updatedAt: now,
+      // Include the new fields
+      candidateName: args.candidateName,
+      candidateEmail: args.candidateEmail,
+      candidatePhone: args.candidatePhone,
+      candidateLocation: args.candidateLocation,
+      skills: args.skills,
+      experience: args.experience,
+      resumeFileId: args.resumeFileId,
     });
   },
 });
@@ -37,6 +56,33 @@ export const getUserApplications = query({
   },
 });
 
+//Get employer applications
+export const getEmployerApplications = query({
+  args: { employerId: v.string() },
+  handler: async (ctx, { employerId }) => {
+    // Get all jobs for this employer
+    const jobs = await ctx.db
+      .query("jobs")
+      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .collect();
+    
+    const jobIds = jobs.map(j => j._id);
+    
+    // Get all applications for these jobs
+    const applications = await Promise.all(
+      jobIds.map(async (jobId) => {
+        const apps = await ctx.db
+          .query("applications")
+          .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+          .collect();
+        return apps;
+      })
+    );
+    
+    return applications.flat();
+  },
+});
+
 // Get applications by job
 export const getJobApplications = query({
   args: { jobId: v.id("jobs") },
@@ -44,6 +90,13 @@ export const getJobApplications = query({
     return await ctx.db.query("applications")
       .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
       .collect();
+  },
+});
+
+export const getApplicationById = query({
+  args: { applicationId: v.id("applications") },
+  handler: async (ctx, { applicationId }) => {
+    return await ctx.db.get(applicationId);
   },
 });
 
@@ -57,7 +110,8 @@ export const updateApplicationStatus = mutation({
       v.literal("interviewing"),
       v.literal("offer"),
       v.literal("rejected"),
-      v.literal("accepted")
+      v.literal("accepted"),
+      v.literal("reviewed") 
     ),
     notes: v.optional(v.string()),
   },
@@ -71,14 +125,6 @@ export const updateApplicationStatus = mutation({
     });
   },
 });
-
-// // Delete an application
-// export const deleteApplication = mutation({
-//   args: { applicationId: v.id("applications") },
-//   handler: async (ctx, {  applicationId }) => {
-//     await ctx.db.delete(applicationId);
-//   },
-// });
 
 export const deleteApplication = mutation({
   args: {

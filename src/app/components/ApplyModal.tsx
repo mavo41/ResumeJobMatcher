@@ -1,0 +1,560 @@
+// components/ApplyModal.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
+import { X, Upload, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, Sparkles } from "lucide-react";
+import { toast } from "react-hot-toast";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Button } from "./ui/button";
+
+interface ApplyModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  jobId: Id<"jobs">;
+  jobTitle: string;
+  companyName: string;
+  onApplySuccess?: () => void;
+}
+
+export default function ApplyModal({
+  isOpen,
+  onClose,
+  jobId,
+  jobTitle,
+  companyName,
+  onApplySuccess,
+}: ApplyModalProps) {
+  const { user } = useUser();
+  const router = useRouter();
+  
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [atsScore, setAtsScore] = useState<number | null>(null);
+  const [atsFeedback, setAtsFeedback] = useState<any>(null);
+  const [hasExistingResume, setHasExistingResume] = useState(false);
+  const [useExistingResume, setUseExistingResume] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [step, setStep] = useState<"upload" | "analyze" | "review" | "success">("upload");
+  const [resumeId, setResumeId] = useState<Id<"resumes"> | null>(null);
+  const [statusText, setStatusText] = useState("");
+
+  // Check if user has an existing resume
+  const userResume = useQuery(
+    api.resumes.getUserResume,
+    user?.id ? { userId: user.id } : "skip"
+  );
+
+  const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
+  const uploadResume = useMutation(api.resumes.uploadResume);
+  const createApplication = useMutation(api.applications.createApplication);
+
+  useEffect(() => {
+    if (userResume) {
+      setHasExistingResume(true);
+    }
+  }, [userResume]);
+
+  // Simulate upload progress
+  useEffect(() => {
+    if (isUploading && uploadProgress < 100) {
+      const timer = setTimeout(() => {
+        setUploadProgress(prev => Math.min(prev + 10, 100));
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isUploading, uploadProgress]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (!validTypes.includes(file.type)) {
+        toast.error("Please upload a PDF or Word document");
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      
+      setSelectedFile(file);
+      handleAnalyzeResume(file);
+    }
+  };
+
+  const handleAnalyzeResume = async (file: File) => {
+    setIsAnalyzing(true);
+    setIsUploading(true);
+    setUploadProgress(0);
+    setStep("analyze");
+    
+    try {
+      // Simulate progress
+      setUploadProgress(30);
+      
+      // Upload file to get storage ID
+      const postUrl = await generateUploadUrl();
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const uploadResponse = await fetch(postUrl, {
+        method: "POST",
+        body: formData,
+      });
+      
+      setUploadProgress(60);
+      
+      if (!uploadResponse.ok) throw new Error("Upload failed");
+      
+      const { storageId } = await uploadResponse.json();
+      const fileStorageId = storageId as Id<"_storage">;
+      
+      // Create resume record BEFORE analysis
+      setStatusText("Creating resume record...");
+      const newResumeId = await uploadResume({
+        userId: user?.id || "",
+        fileStorageId: fileStorageId,
+        jobTitle: jobTitle,
+        companyName: companyName,
+        jobDescription: "",
+      });
+      
+      setResumeId(newResumeId);
+      
+      // Send to analyze API with resumeId
+      setStatusText("Analyzing your resume...");
+      const analyzeResponse = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileStorageId: fileStorageId,
+          jobTitle: jobTitle,
+          jobDescription: "",
+          resumeId: newResumeId,
+          userId: user?.id,
+        }),
+      });
+      
+      setUploadProgress(90);
+      
+      if (!analyzeResponse.ok) {
+        const errorData = await analyzeResponse.json();
+        throw new Error(errorData.error || "Analysis failed");
+      }
+      
+      const analysisData = await analyzeResponse.json();
+      setAtsScore(analysisData.feedback?.overallScore || 65);
+      setAtsFeedback(analysisData.feedback);
+      
+      setUploadProgress(100);
+      setStep("review");
+      toast.success("Resume analyzed successfully!");
+    } catch (error) {
+      console.error("Analysis error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to analyze resume. Please try again.");
+      setStep("upload");
+    } finally {
+      setIsAnalyzing(false);
+      setIsUploading(false);
+    }
+  };
+
+  const handleSubmitApplication = async () => {
+    if (!user?.id) {
+      toast.error("Please sign in to apply");
+      return;
+    }
+
+    setIsSubmitting(true);
+    
+    try {
+      let resumeFileId: Id<"_storage"> | undefined;
+      let existingResumeId: Id<"resumes"> | undefined;
+
+      // If user chose to use existing resume
+      if (useExistingResume && hasExistingResume && userResume?.fileStorageId) {
+        resumeFileId = userResume.fileStorageId;
+        existingResumeId = userResume._id;
+        setResumeId(existingResumeId);
+      } else if (selectedFile) {
+        // File should already be uploaded from the analyze step
+        if (!resumeId) {
+          // Fallback: upload the file
+          const postUrl = await generateUploadUrl();
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+          
+          const uploadResponse = await fetch(postUrl, {
+            method: "POST",
+            body: formData,
+          });
+          
+          if (!uploadResponse.ok) throw new Error("Upload failed");
+          const { storageId } = await uploadResponse.json();
+          resumeFileId = storageId as Id<"_storage">;
+          
+          // Create resume record
+          const newResumeId = await uploadResume({
+            userId: user.id,
+            fileStorageId: resumeFileId,
+            jobTitle: jobTitle,
+            companyName: companyName,
+            jobDescription: "",
+          });
+          
+          setResumeId(newResumeId);
+        } else {
+          // Use existing resumeId from analysis step
+          resumeFileId = userResume?.fileStorageId;
+        }
+      }
+
+      if (!resumeId && !existingResumeId) {
+        throw new Error("Failed to create resume record");
+      }
+
+      const finalResumeId = resumeId || existingResumeId;
+
+      // Create application with resume reference
+      await createApplication({
+        userId: user.id,
+        jobId: jobId,
+        status: "applied",
+        notes: "",
+        candidateName: user.fullName || "",
+        candidateEmail: user.emailAddresses?.[0]?.emailAddress || "",
+        resumeFileId: resumeFileId,
+      });
+      
+      setStep("success");
+      toast.success("Application submitted successfully!");
+      
+      if (onApplySuccess) onApplySuccess();
+      
+      // Navigate to results page after delay
+      setTimeout(() => {
+        if (finalResumeId) {
+          router.push(`/results/${finalResumeId}`);
+        }
+        onClose();
+      }, 3000);
+      
+    } catch (error) {
+      console.error("Application error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to submit application. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      
+      {/* Modal */}
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl mx-4 p-6 animate-in fade-in zoom-in duration-200">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">Apply for {jobTitle}</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{companyName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+          >
+            <X className="w-5 h-5 text-zinc-500" />
+          </button>
+        </div>
+
+        {/* Step Indicator */}
+        <div className="flex items-center justify-between mb-6 px-4">
+          {["Upload", "Analyze", "Review", "Submit"].map((label, index) => {
+            const stepIndex = step === "upload" ? 0 : step === "analyze" ? 1 : step === "review" ? 2 : 3;
+            const isActive = index <= stepIndex;
+            const isCurrent = index === stepIndex;
+            
+            return (
+              <div key={label} className="flex items-center">
+                <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${
+                  isActive 
+                    ? "bg-indigo-600 text-white" 
+                    : "bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400"
+                } ${isCurrent ? "ring-2 ring-indigo-600 ring-offset-2 dark:ring-offset-zinc-900" : ""}`}>
+                  {index + 1}
+                </div>
+                <span className={`ml-2 text-sm font-medium ${
+                  isActive ? "text-zinc-900 dark:text-white" : "text-zinc-400 dark:text-zinc-500"
+                } hidden sm:inline`}>
+                  {label}
+                </span>
+                {index < 3 && (
+                  <div className={`w-8 h-0.5 mx-2 ${
+                    isActive ? "bg-indigo-600" : "bg-zinc-200 dark:bg-zinc-700"
+                  }`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Status Text (when analyzing) */}
+        {statusText && step === "analyze" && (
+          <div className="text-center text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+            {statusText}
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="space-y-6">
+          {/* Step 1: Upload */}
+          {step === "upload" && (
+            <div className="space-y-4">
+              {hasExistingResume ? (
+                <div className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-medium text-zinc-900 dark:text-white">Existing Resume Found</p>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        You have a resume on file. Would you like to use it or upload a new one?
+                      </p>
+                      <div className="flex gap-4 mt-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            checked={useExistingResume}
+                            onChange={() => setUseExistingResume(true)}
+                            className="w-4 h-4 text-indigo-600"
+                          />
+                          Use existing
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            checked={!useExistingResume}
+                            onChange={() => setUseExistingResume(false)}
+                            className="w-4 h-4 text-indigo-600"
+                          />
+                          Upload new
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    Upload your resume/CV to apply for this position
+                  </p>
+                </div>
+              )}
+
+              {(!useExistingResume || !hasExistingResume) && (
+                <div className="relative border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-indigo-500 transition cursor-pointer">
+                  <Upload className="w-12 h-12 text-zinc-400 mx-auto mb-4" />
+                  <p className="text-zinc-600 dark:text-zinc-400">
+                    Drag & drop your resume here, or click to browse
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-2">
+                    Supports PDF, DOC, DOCX (Max 5MB)
+                  </p>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={handleFileSelect}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {selectedFile && (
+                <div className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-zinc-800 rounded-lg">
+                  <FileText className="w-5 h-5 text-indigo-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white truncate">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setStep("upload");
+                    }}
+                    className="text-zinc-400 hover:text-zinc-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4">
+                <Button variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (useExistingResume && hasExistingResume && userResume) {
+                      setResumeId(userResume._id);
+                      handleSubmitApplication();
+                    } else if (selectedFile) {
+                      // This will trigger the analyze flow
+                      handleAnalyzeResume(selectedFile);
+                    } else {
+                      toast.error("Please upload a resume or use your existing one");
+                    }
+                  }}
+                  disabled={!selectedFile && !(useExistingResume && hasExistingResume)}
+                  className="gap-2"
+                >
+                  Continue
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Analyze */}
+          {step === "analyze" && (
+            <div className="text-center py-8">
+              {isAnalyzing || isUploading ? (
+                <>
+                  <Loader2 className="w-16 h-16 text-indigo-500 animate-spin mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-zinc-900 dark:text-white">
+                    {statusText || "Analyzing Your Resume"}
+                  </h3>
+                  <p className="text-zinc-500 dark:text-zinc-400 mt-2">
+                    We're checking your resume against the job requirements...
+                  </p>
+                  <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-2 mt-4">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-zinc-400 mt-2">{uploadProgress}%</p>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-4">
+                  <CheckCircle className="w-16 h-16 text-emerald-500" />
+                  <h3 className="text-xl font-semibold text-zinc-900 dark:text-white">
+                    Analysis Complete!
+                  </h3>
+                  <Button onClick={() => setStep("review")}>
+                    View Results
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Review */}
+          {step === "review" && (
+            <div className="space-y-4">
+              {atsScore !== null && (
+                <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 border border-indigo-100 dark:border-indigo-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">ATS Match Score</p>
+                      <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{atsScore}%</p>
+                    </div>
+                    <Sparkles className="w-8 h-8 text-amber-400" />
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-zinc-200 dark:bg-zinc-700">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-600"
+                      style={{ width: `${atsScore}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {atsFeedback?.ATS?.tips?.slice(0, 3).map((tip: any, i: number) => (
+                      <span key={i} className="text-xs px-2 py-1 bg-white dark:bg-zinc-800 rounded-full border border-zinc-200 dark:border-zinc-700">
+                        {tip.tip}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
+                <p className="text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Want to improve your score?{" "}
+                    {resumeId ? (
+                      <Link href={`/results/${resumeId}`} className="font-medium underline hover:no-underline">
+                        Get detailed feedback
+                      </Link>
+                    ) : (
+                      <Link href="/upload" className="font-medium underline hover:no-underline">
+                        Get detailed feedback
+                      </Link>
+                    )}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <Button variant="outline" onClick={() => setStep("upload")}>
+                  Back
+                </Button>
+                <Button
+                  onClick={handleSubmitApplication}
+                  disabled={isSubmitting}
+                  className="gap-2"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
+                  Submit Application
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Success */}
+          {step === "success" && (
+            <div className="text-center py-8">
+              <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-zinc-900 dark:text-white">
+                Application Submitted! 🎉
+              </h3>
+              <p className="text-zinc-500 dark:text-zinc-400 mt-2">
+                Your application for <strong>{jobTitle}</strong> has been sent successfully.
+              </p>
+              <p className="text-sm text-zinc-400 mt-1">
+                The employer will review your resume and get back to you soon.
+              </p>
+              <button
+                onClick={onClose}
+                className="mt-6 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+              >
+                Close
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

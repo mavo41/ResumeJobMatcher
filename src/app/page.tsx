@@ -1,26 +1,56 @@
+"use client";
 import { title } from "process";
 import { resumes } from "./constants";
 import ResumeCard from "./components/ResumeCard";
 import Link from "next/link";
 import DebugAuth from "./components/DebugAuth";
+import {  useAuth, useUser } from "@clerk/nextjs";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { useUpgradeModal } from "./hooks/useUpgradeModal";
+import UpgradeToEmployerModal from "./components/UpgradeToEmployerModal";
+
+
 
 export function meta() {
 
    return [
       {title: "Resume Matcher"},
-      {name: "description", content: "Upload your resume and get personalized feedback for your dream job. Track your applications and resume ratings to land an interview."},
+      {name: "description", 
+        content: "Upload your resume and get personalized feedback for your dream job. Track your applications and resume ratings to land an interview."},
    ]
  
 }
 export default function HomePage() {
+
+ const { userId } = useAuth();
+   const user = useQuery(api.users.getUser, userId ? { userId } : "skip");
+   const { isOpen, openModal, closeModal } = useUpgradeModal();
+ 
+
+   if (!userId) {
+       return (
+         <Link href="/sign-in?redirect=/">
+           <button className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
+             Sign in to Post Jobs
+           </button>
+         </Link>
+       );
+     }
+   
+    
   return (
-    <main className="bg-[url('/images/bg-main.svg')] bg-cover">
+      <>
+              
+  
+    <main id="home" className="bg-[url('/images/bg-main.svg')] bg-cover">
       <section className="main-section">
         <div className="flex flex-col min-h-screen text-foreground overflow-hidden">
           <section className="relative z-10 py-24 flex-grow">
             <div className="container mx-auto px-4">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
                 
+             
                 {/* Left Section */}
                 <div className="lg:col-span-7 space-y-8">
                   <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
@@ -75,6 +105,31 @@ export default function HomePage() {
             </div>
           </section>
         </div>
+
+         <div className=" justify-center">
+      </div>
+
+
+       <button
+                onClick={openModal}
+                className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                Post a Job
+              </button>
+              
+              <UpgradeToEmployerModal
+                isOpen={isOpen}
+                onClose={closeModal}
+                userId={userId}
+              />
+      // If user is employer, go directly to post job
+  
+    <Link href="/post-job">
+      <button className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">
+        Post a Job
+      </button>
+    </Link>
+      
       
 
 {/* Resume Cards Section */}
@@ -91,6 +146,7 @@ export default function HomePage() {
           )}
 </section>
     </main>
+    </>
   );
 }      
 

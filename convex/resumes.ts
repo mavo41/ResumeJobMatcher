@@ -150,6 +150,61 @@ export const getArchivedResumes = query({
   },
 });
 
+// get user resumes
+export const getUserResume = query({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    return await ctx.db
+      .query("resumes")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .order("desc")
+      .first();
+  },
+});
+
+//upload resume to employer dashboard
+export const uploadResume = mutation({
+  args: {
+    userId: v.string(),
+    fileStorageId: v.id("_storage"),
+    jobTitle: v.optional(v.string()),
+    companyName: v.optional(v.string()),
+    jobDescription: v.optional(v.string()), // ADD THIS
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("resumes")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    const now = Date.now();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        fileStorageId: args.fileStorageId,
+        jobTitle: args.jobTitle || existing.jobTitle,
+        companyName: args.companyName || existing.companyName,
+        jobDescription: args.jobDescription || existing.jobDescription || "",
+        updatedAt: now,
+        status: "active",
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("resumes", {
+      userId: args.userId,
+      fileStorageId: args.fileStorageId,
+      jobTitle: args.jobTitle || "",
+      companyName: args.companyName || "",
+      jobDescription: args.jobDescription || "",
+      createdAt: now,
+      updatedAt: now,
+      status: "active",
+    });
+  },
+});
+
+
 // 9) completely delete the resume 
 export const deleteResume = mutation({
   args: { resumeId: v.id("resumes") },

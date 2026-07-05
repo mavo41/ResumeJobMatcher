@@ -79,6 +79,7 @@ export default function UploadPage() {
 
       // 3) Call API route → Gemini → feedback
       setStatusText("Analyzing your resume...");
+      console.log("[handleAnalyze] Sending to /api/analyze:", { fileStorageId: storageId, jobTitle, jobDescription });
       const aiRes = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,7 +91,7 @@ export default function UploadPage() {
       });
 
       const data = await aiRes.json();
-console.log("the data is here",data)
+     console.log("the data is here",data)
       if (!aiRes.ok) {
         throw new Error(data.error || "AI analysis failed");
       }

@@ -32,7 +32,7 @@ export default function Home() {
                 {/* Floating Chat Bubble */}
                 <button
                   onClick={() => setIsChatOpen(true)}
-                  className="fixed bottom-4 right-4 w-12 h-12 bg-blue-500 width-90% height-90% text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-600 transition z-50"
+                  className="fixed bottom-4 right-4 w-20 h-20 bg-blue-500 width-90% height-90% text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-600 transition z-50"
                   title="Open AI Chat"
                 >
                   🤖
@@ -45,7 +45,7 @@ export default function Home() {
                       <div className="flex justify-end">
                         <button
                           onClick={() => setIsChatOpen(false)}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 hover:text-red-700 w-7 h-7 text-3xl"
                           aria-label="Close Chat"
                         >
                           ✕

@@ -14,7 +14,7 @@ const FileUploader = ({ onFileSelect }: FileUploaderProps) => {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       const file = acceptedFiles[0] || null;
-      setSelectedFile(file); // ✅ Our single source of truth
+      setSelectedFile(file); //  single source of truth
       onFileSelect?.(file);
     },
     [onFileSelect]

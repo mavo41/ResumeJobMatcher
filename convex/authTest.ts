@@ -1,15 +1,26 @@
 import { query } from "./_generated/server";
-//convex\authTest.ts
+
 export const whoami = query(async (ctx) => {
   const identity = await ctx.auth.getUserIdentity();
 
   if (!identity) {
-    return { status: "unauthenticated", message: "No user logged in" };
+    return {
+      status: "unauthenticated",
+      message: "No user logged in",
+    };
   }
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) =>
+      q.eq("userId", identity.subject)
+    )
+    .unique();
 
   return {
     status: "authenticated",
-    userId: identity.subject,  // Clerk user ID
+    userId: identity.subject,
     email: identity.email,
+    role: user?.role ?? "user",
   };
 });

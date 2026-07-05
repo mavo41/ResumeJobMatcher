@@ -1,3 +1,4 @@
+// app/jobboard/page.tsx
 'use client';
 
 import { useState } from "react";
@@ -7,7 +8,11 @@ import { Id } from "../../../convex/_generated/dataModel";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { X, MapPin, Clock } from "lucide-react";
+import { X, MapPin, Clock, Send, Eye, Bookmark } from "lucide-react";
+import { useAuth } from "@clerk/nextjs";
+import { toast } from "react-hot-toast";
+import { Button } from "../components/ui/button";
+import ApplyModal from "../components/ApplyModal";
 
 // Interfaces based on Convex schema
 interface Job {
@@ -27,30 +32,43 @@ interface Application {
   _id: Id<"applications">;
   userId: string;
   jobId: Id<"jobs">;
-  status: "shortlisted" | "applied" | "interviewing" | "offer" | "rejected" | "accepted";
+  status: "shortlisted" | "applied" | "interviewing" | "offer" | "rejected" | "accepted" | "reviewed";
   notes?: string;
   savedAt: number;
   updatedAt: number;
+  candidateName?: string;
+  candidateEmail?: string;
+  candidatePhone?: string;
+  candidateLocation?: string;
+  skills?: string[];
+  experience?: number;
+  matchScore?: number;
+  resumeFileId?: Id<"_storage">;
 }
 
 export default function JobMatcher() {
-  // Convex queries
+  const { userId } = useAuth();
+  const [currentFilter, setCurrentFilter] = useState<string>("Bookmarked");
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [selectedJobForApply, setSelectedJobForApply] = useState<Job | null>(null);
+
+  const router = useRouter();
+
+  // Fetch jobs and applications
   const jobs = useQuery(api.jobs.getOpenJobs, { cursor: undefined, limit: 100 }) || { page: [] };
-  const userApplications = useQuery(api.applications.getUserApplications, { userId: "user1" }) || [];
+  const userApplications = useQuery(
+    api.applications.getUserApplications,
+    userId ? { userId } : "skip"
+  ) || [];
+
+  // Mutations
   const createApplication = useMutation(api.applications.createApplication);
   const updateApplicationStatus = useMutation(api.applications.updateApplicationStatus);
   const deleteApplication = useMutation(api.applications.deleteApplication);
 
-  // State for job details panel
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-
-  // New state for current filter
-  const [currentFilter, setCurrentFilter] = useState<string>("Bookmarked");
-
-  const router = useRouter();
-
-  // Status map for filtering (category to status)
+  // Status map for filtering
   const statusMap: Record<string, string> = {
     Shortlisted: "shortlisted",
     Applied: "applied",
@@ -58,9 +76,10 @@ export default function JobMatcher() {
     Offers: "offer",
     Rejected: "rejected",
     Accepted: "accepted",
+    Reviewed: "reviewed",
   };
 
-  // Filtered applications based on currentFilter
+  // Filtered applications
   const filteredApplications = currentFilter === "Bookmarked"
     ? userApplications
     : userApplications.filter((a: Application) => a.status === statusMap[currentFilter]);
@@ -75,25 +94,31 @@ export default function JobMatcher() {
     Offers: userApplications.filter((a: Application) => a.status === "offer").length,
     Rejected: userApplications.filter((a: Application) => a.status === "rejected").length,
     Accepted: userApplications.filter((a: Application) => a.status === "accepted").length,
+    Reviewed: userApplications.filter((a: Application) => a.status === "reviewed").length,
   };
 
-  // Quick action handlers
+  // Handlers
   const handleBookmark = async (jobId: Id<"jobs">) => {
+    if (!userId) {
+      toast.error("Please sign in to bookmark jobs");
+      return;
+    }
     await createApplication({
-      userId: "user1",
+      userId,
       jobId,
       status: "shortlisted",
       notes: "",
     });
+    toast.success("Job bookmarked!");
   };
 
-  const handleApply = async (jobId: Id<"jobs">) => {
-    await createApplication({
-      userId: "user1",
-      jobId,
-      status: "applied",
-      notes: "",
-    });
+  const handleApplyClick = (job: Job) => {
+    if (!userId) {
+      toast.error("Please sign in to apply");
+      return;
+    }
+    setSelectedJobForApply(job);
+    setShowApplyModal(true);
   };
 
   const handleReject = async (applicationId: Id<"applications">) => {
@@ -102,6 +127,7 @@ export default function JobMatcher() {
       status: "rejected",
       notes: undefined,
     });
+    toast.success("Application rejected");
   };
 
   const handleUpdateStatus = async (applicationId: Id<"applications">, status: Application["status"]) => {
@@ -110,6 +136,7 @@ export default function JobMatcher() {
       status,
       notes: undefined,
     });
+    toast.success(`Status updated to ${status}`);
   };
 
   const handleUpdateNotes = async (applicationId: Id<"applications">, notes: string) => {
@@ -121,7 +148,6 @@ export default function JobMatcher() {
     });
   };
 
-  // Job selection for details
   const handleSelectJob = (job: Job) => {
     setSelectedJob(job);
     setIsDetailsOpen(true);
@@ -129,12 +155,12 @@ export default function JobMatcher() {
 
   const handleRemoveJob = async (applicationId: Id<"applications">) => {
     await deleteApplication({ applicationId });
+    toast.success("Job removed");
   };
 
-  // Handle stat card click
   const handleCardClick = (category: string) => {
     if (category === "Recommended") {
-      router.push("/jobMatcher");
+      router.push("/jobboard");
     } else {
       setCurrentFilter(category);
     }
@@ -143,12 +169,12 @@ export default function JobMatcher() {
   return (
     <div className="min-h-screen bg-gray-100 font-sans p-4 md:p-6">
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* Main Content Area (Job Board) */}
+        {/* Main Content Area */}
         <div className="w-full lg:w-3/4">
           <h1 className="text-2xl font-bold mb-4">Job Tracker Board</h1>
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
             {Object.entries(counts).map(([category, count]) => (
               <div
                 key={category}
@@ -161,9 +187,12 @@ export default function JobMatcher() {
             ))}
           </div>
 
-          {/* Bookmarked Jobs Table */}
+          {/* Jobs Table */}
           <div className="bg-white p-4 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Bookmarked Jobs</h2>
+            <h2 className="text-xl font-semibold mb-4">
+              {currentFilter === "Bookmarked" ? "Bookmarked Jobs" : `${currentFilter} Jobs`}
+            </h2>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -178,85 +207,100 @@ export default function JobMatcher() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredApplications.map((app: Application) => {
-                    const job = jobs.page.find((j: Job) => j._id === app.jobId);
-                    if (!job) return null;
-                    return (
-                      <tr key={app._id} className="border-b">
-                        <td className="p-2">{job.title}</td>
-                        <td className="p-2">{job.company}</td>
-                        <td className="p-2">{job.location}</td>
-                        <td className="p-2">
-                          <select
-                            value={app.status}
-                            onChange={(e) => handleUpdateStatus(app._id, e.target.value as Application["status"])}
-                            className="border rounded p-1"
-                          >
-                            {["shortlisted", "applied", "interviewing", "offer", "rejected", "accepted"].map(status => (
-                              <option key={status} value={status}>
-                                {status.charAt(0).toUpperCase() + status.slice(1)}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">{format(new Date(app.savedAt), "MMM dd, yyyy")}</td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={app.notes || ""}
-                            onChange={(e) => handleUpdateNotes(app._id, e.target.value)}
-                            className="border rounded p-1 w-full"
-                            placeholder="Add notes..."
-                          />
-                        </td>
-                        <td className="p-2 flex space-x-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleApply(app.jobId);
-                            }}
-                            className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
-                          >
-                            Apply
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReject(app._id);
-                            }}
-                            className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveJob(app._id);
-                            }}
-                            className="text-gray-500 hover:text-red-500 p-1"
-                            title="Remove Job"
-                          >
-                            <X size={20} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredApplications.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-4 text-center text-gray-500">
+                        No jobs found in this category
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredApplications.map((app: Application) => {
+                      const job = jobs.page.find((j: Job) => j._id === app.jobId);
+                      if (!job) return null;
+                      return (
+                        <tr key={app._id} className="border-b">
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleSelectJob(job)}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {job.title}
+                            </button>
+                          </td>
+                          <td className="p-2">{job.company}</td>
+                          <td className="p-2">{job.location}</td>
+                          <td className="p-2">
+                            <select
+                              value={app.status}
+                              onChange={(e) => handleUpdateStatus(app._id, e.target.value as Application["status"])}
+                              className="border rounded p-1"
+                            >
+                              {["shortlisted", "applied", "interviewing", "offer", "rejected", "accepted", "reviewed"].map(status => (
+                                <option key={status} value={status}>
+                                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="p-2">{format(new Date(app.savedAt), "MMM dd, yyyy")}</td>
+                          <td className="p-2">
+                            <input
+                              type="text"
+                              value={app.notes || ""}
+                              onChange={(e) => handleUpdateNotes(app._id, e.target.value)}
+                              className="border rounded p-1 w-full"
+                              placeholder="Add notes..."
+                            />
+                          </td>
+                          <td className="p-2 flex space-x-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleApplyClick(job);
+                              }}
+                              className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 text-xs"
+                            >
+                              Apply
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReject(app._id);
+                              }}
+                              className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 text-xs"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveJob(app._id);
+                              }}
+                              className="text-gray-500 hover:text-red-500 p-1"
+                              title="Remove Job"
+                            >
+                              <X size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        {/* Right Side Panel Area (Job Matches) */}
+        {/* Right Side Panel */}
         <div className="w-full lg:w-1/4 bg-white p-4 rounded-lg shadow-lg flex flex-col">
           <h2 className="text-xl font-bold mb-4">Job Matches For You</h2>
-          <div className="flex-1 overflow-y-auto space-y-4 pr-2 -mr-2"> {/* Custom scrollbar */}
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2 -mr-2">
             {jobs.page.slice(0, 7).map((job: Job) => (
               <div
                 key={job._id}
                 className="p-3 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 cursor-pointer transition border border-gray-200"
-                onClick={() => handleSelectJob(job)} // This now opens the side panel
+                onClick={() => handleSelectJob(job)}
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -275,8 +319,17 @@ export default function JobMatcher() {
                     {job.tag || "RECOMMENDED"}
                   </span>
                 </div>
-                {/* Bookmarked and Apply buttons */}
                 <div className="flex space-x-2 mt-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApplyClick(job);
+                    }}
+                    className="flex-1 bg-blue-500 text-white text-xs px-2 py-1 rounded hover:bg-blue-600 transition"
+                  >
+                    <Send className="w-3 h-3 inline mr-1" />
+                    Apply
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -284,40 +337,40 @@ export default function JobMatcher() {
                     }}
                     className="flex-1 bg-yellow-500 text-white text-xs px-2 py-1 rounded hover:bg-yellow-600 transition"
                   >
-                    Bookmark
+                    <Bookmark className="w-3 h-3 inline mr-1" />
+                    Save
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleApply(job._id);
-                    }}
-                    className="flex-1 bg-blue-500 text-white text-xs px-2 py-1 rounded hover:bg-blue-600 transition"
-                  >
-                    Apply
-                  </button>
+                </div>
+                <div className="mt-2">
+                  <Link href={`/job/${job._id}`}>
+                    <Button variant="outline" size="sm" className="w-full text-xs gap-1">
+                      <Eye className="w-3 h-3" />
+                      View Details
+                    </Button>
+                  </Link>
                 </div>
               </div>
             ))}
           </div>
           <div className="mt-4 border-t pt-4">
-            <Link href="/jobs" passHref className="block w-full text-center py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
+            <Link href="/jobs" className="block w-full text-center py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
               See All Jobs
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Modal/Side Panel for Job Details (Now a static right-side panel) */}
+      {/* Job Details Panel */}
       {isDetailsOpen && selectedJob && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-end z-50">
-          <div className="bg-white w-full max-w-md h-full p-6 shadow-lg transform transition-transform ease-in-out duration-300 translate-x-0">
+          <div className="bg-white w-full max-w-md h-full p-6 shadow-lg transform transition-transform ease-in-out duration-300 translate-x-0 overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold">{selectedJob.title}</h2>
               <button onClick={() => setIsDetailsOpen(false)} className="text-gray-500 hover:text-gray-700">
                 <X size={24} />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div className="flex items-center text-sm text-gray-600">
                 <p className="text-gray-600">{selectedJob.company}</p>
@@ -327,30 +380,37 @@ export default function JobMatcher() {
               <p className="text-sm text-gray-500 flex items-center">
                 <Clock size={16} className="mr-1" /> Posted: {format(new Date(selectedJob.postedAt), "MMM dd, yyyy")}
               </p>
-              <a href={""} className="text-blue-500 hover:underline text-sm block" target="_blank" rel="noopener noreferrer">
-                View on Company Website
-              </a>
+
               <div>
                 <h3 className="text-lg font-semibold mt-4">Job Description</h3>
-                <p className="text-gray-700 mt-2">{selectedJob.description}</p>
+                <p className="text-gray-700 mt-2 whitespace-pre-wrap">{selectedJob.description}</p>
               </div>
-              
+
+              <div className="mt-4">
+                <Link href={`/job/${selectedJob._id}`}>
+                  <Button variant="outline" className="w-full gap-2">
+                    <Eye className="w-4 h-4" />
+                    View Full Job Details
+                  </Button>
+                </Link>
+              </div>
+
               <div className="mt-6 flex space-x-4">
                 <button
                   onClick={() => {
-                    handleApply(selectedJob._id);
+                    handleApplyClick(selectedJob);
                     setIsDetailsOpen(false);
                   }}
-                  className="bg-blue-100 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors flex-1"
                 >
-                  Apply
+                  Apply Now
                 </button>
                 <button
                   onClick={() => {
                     handleBookmark(selectedJob._id);
                     setIsDetailsOpen(false);
                   }}
-                  className="bg-green-100 text-white px-4 py-2 rounded-lg hover:bg-green-600"
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg transition-colors flex-1"
                 >
                   Bookmark
                 </button>
@@ -358,6 +418,23 @@ export default function JobMatcher() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Apply Modal */}
+      {selectedJobForApply && (
+        <ApplyModal
+          isOpen={showApplyModal}
+          onClose={() => {
+            setShowApplyModal(false);
+            setSelectedJobForApply(null);
+          }}
+          jobId={selectedJobForApply._id as Id<"jobs">}
+          jobTitle={selectedJobForApply.title}
+          companyName={selectedJobForApply.company}
+          onApplySuccess={() => {
+            // Refresh data or show success
+          }}
+        />
       )}
     </div>
   );

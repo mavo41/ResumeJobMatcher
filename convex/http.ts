@@ -1,33 +1,66 @@
 //convex\http.ts
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import type { WebhookEvent } from "@clerk/backend";
+import { Webhook } from "svix";
 const http = httpRouter();
 
+
 http.route({
-  path: "/getFileUrl",
-  method: "GET",
+  path: "/clerk-users-webhook",
+  method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const urlObj = new URL(request.url);
-    const storageIdStr = urlObj.searchParams.get("storageId");
+    const event = await validateRequest(request);
+    if (!event) return new Response("Error verifying webhook", { status: 400 });
 
+    switch (event.type) {
+      case "user.created":
+      case "user.updated":
+        await ctx.runMutation(internal.users.upsertFromClerk, { data: event.data });
+        break;
 
-    if (!storageIdStr) {
-      return new Response("Missing storageId", { status: 400 });
+      case "user.deleted":
+        await ctx.runMutation(internal.users.deleteFromClerk, { clerkUserId: event.data.id! });
+        break;
+
+      default:
+        console.log(`Ignored Clerk event: ${event.type}`);
     }
-    
-     // Convert string → Convex ID type
-    const storageId = storageIdStr as Id<"_storage">;
-        // Get the file's download URL from Convex storage
-    const fileUrl = await ctx.storage.getUrl(storageId);
 
-    if (fileUrl === null) {
-      return new Response("File not found", { status: 404 });
-    }
+    return new Response(null, { status: 200 });
+  }),
+});
 
-    // Redirect to the file's URL
-    return new Response(fileUrl, {
+async function validateRequest(req: Request): Promise<WebhookEvent | null> {
+  const payloadString = await req.text();
+  const svixHeaders = {
+    "svix-id": req.headers.get("svix-id")!,
+    "svix-timestamp": req.headers.get("svix-timestamp")!,
+    "svix-signature": req.headers.get("svix-signature")!,
+  };
+
+  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET!);
+  try {
+    return wh.verify(payloadString, svixHeaders) as WebhookEvent;
+  } catch (err) {
+    console.error("Webhook verification failed", err);
+    return null;
+  }
+}
+
+
+
+http.route({
+  path: "/uploadLogo",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const blob = await request.blob();
+    const storageId = await ctx.storage.store(blob);
+
+    return new Response(JSON.stringify({ storageId }), {
       status: 200,
+      headers: { "Content-Type": "application/json" },
     });
   }),
 });
