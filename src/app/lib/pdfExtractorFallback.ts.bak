@@ -1,0 +1,61 @@
+// src/lib/pdfExtractorFallback.ts
+
+/**
+ * Fallback PDF extractor that uses the browser's built-in PDF capabilities
+ * This is a simpler approach that works in the browser environment
+ */
+export async function extractTextFromPDF(file: File | ArrayBuffer | Buffer): Promise<string> {
+  try {
+    let data: ArrayBuffer;
+    
+    if (file instanceof File) {
+      data = await file.arrayBuffer();
+    } else if (file instanceof ArrayBuffer) {
+      data = file;
+    } else if (Buffer.isBuffer(file)) {
+      data = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+    } else {
+      throw new Error('Unsupported file type for PDF extraction');
+    }
+
+    // Use the FileReader API to read the PDF as text
+    // Note: This won't work for all PDFs, but is a simple fallback
+    const blob = new Blob([data], { type: 'application/pdf' });
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          // Try to parse as text (works for some PDFs)
+          const result = reader.result as string;
+          // Remove binary garbage and extract readable text
+          const cleanText = result.replace(/[^\x20-\x7E\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (cleanText.length > 50) {
+            resolve(cleanText);
+          } else {
+            // Fallback: look for common resume sections
+            const sections = ['experience', 'education', 'skills', 'projects', 'summary'];
+            let foundText = '';
+            for (const section of sections) {
+              const regex = new RegExp(`\\b${section}\\b[\\s\\S]*?(?=\\b(?:${sections.filter(s => s !== section).join('|')})\\b|$)`, 'i');
+              const match = result.match(regex);
+              if (match) {
+                foundText += match[0] + '\n';
+              }
+            }
+            resolve(foundText || cleanText || 'No readable text found in PDF');
+          }
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+
+    return text;
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    // Last resort fallback
+    return 'PDF text extraction failed. Please upload a text-based PDF file.';
+  }
+}

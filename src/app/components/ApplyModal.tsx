@@ -6,7 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
-import { X, Upload, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, Sparkles } from "lucide-react";
+import { X, Upload, FileText, CheckCircle, AlertCircle, Loader2, ArrowRight, Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "react-hot-toast";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,6 +18,7 @@ interface ApplyModalProps {
   jobId: Id<"jobs">;
   jobTitle: string;
   companyName: string;
+  jobDescription?: string;
   onApplySuccess?: () => void;
 }
 
@@ -27,6 +28,7 @@ export default function ApplyModal({
   jobId,
   jobTitle,
   companyName,
+  jobDescription = "",
   onApplySuccess,
 }: ApplyModalProps) {
   const { user } = useUser();
@@ -44,12 +46,54 @@ export default function ApplyModal({
   const [step, setStep] = useState<"upload" | "analyze" | "review" | "success">("upload");
   const [resumeId, setResumeId] = useState<Id<"resumes"> | null>(null);
   const [statusText, setStatusText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Check if user has an existing resume
   const userResume = useQuery(
     api.resumes.getUserResume,
     user?.id ? { userId: user.id } : "skip"
   );
+
+   // Reactively watch the resume currently being analyzed — mirrors the
+  // pattern used in upload/page.tsx. No polling required.
+  const analyzingResume = useQuery(
+    api.resumes.getResume,
+    resumeId && step === "analyze" ? { id: resumeId } : "skip"
+ );
+
+  useEffect(() => {
+    if (!analyzingResume || step !== "analyze") return;
+
+    if (analyzingResume.analysisStatus === "completed" && analyzingResume.feedback) {
+      setAtsScore(analyzingResume.feedback.overallScore ?? 65);
+      setAtsFeedback(analyzingResume.feedback);
+      setIsAnalyzing(false);
+      setIsUploading(false);
+      toast.success("Resume analyzed successfully!");
+    } else if (analyzingResume.analysisStatus === "failed") {
+      setIsAnalyzing(false);
+      setIsUploading(false);
+      setError(analyzingResume.analysisError || "Analysis failed. You can still apply.");
+      // Graceful fallback so the applicant is never blocked from applying.
+      setAtsScore(50);
+      setAtsFeedback({
+        overallScore: 50,
+        ATS: {
+          score: 50,
+          tips: [{ type: "warning", tip: "Analysis failed. Your resume has been saved but not analyzed." }],
+        },
+        content: { score: 50, tips: [] },
+        skills: { score: 50, tips: [] },
+        structure: { score: 50, tips: [] },
+        toneAndStyle: { score: 50, tips: [] },
+      });
+      toast.error("Analysis failed. Resume saved — you can still apply.");
+    } else if (analyzingResume.analysisStatus === "processing") {
+      setStatusText("Analyzing your resume with AI...");
+    }
+  }, [analyzingResume, step]);
 
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
   const uploadResume = useMutation(api.resumes.uploadResume);
@@ -71,9 +115,19 @@ export default function ApplyModal({
     }
   }, [isUploading, uploadProgress]);
 
+  // Reset error when retrying
+  const handleRetry = () => {
+    setError(null);
+    setRetryCount(prev => prev + 1);
+    if (selectedFile) {
+      handleAnalyzeResume(selectedFile);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setError(null);
       // Validate file type
       const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
       if (!validTypes.includes(file.type)) {
@@ -92,35 +146,51 @@ export default function ApplyModal({
     }
   };
 
+  // ── Upload helper ──────────────────────────────────────────────
+  // IMPORTANT: Convex's generateUploadUrl endpoint expects the RAW file
+  // bytes with an explicit Content-Type header — NOT a FormData-wrapped
+  // body. Wrapping in FormData causes the browser to set
+  // "Content-Type: multipart/form-data; boundary=..." and store the
+  // entire multipart envelope (boundaries included) as the file content,
+  // which corrupts every upload. Always POST the File object directly.
+  const uploadFileDirectly = async (file: File): Promise<Id<"_storage">> => {
+    const postUrl = await generateUploadUrl();
+
+    const uploadResponse = await fetch(postUrl, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
+    }
+
+    const { storageId } = await uploadResponse.json();
+    return storageId as Id<"_storage">;
+  };
+
   const handleAnalyzeResume = async (file: File) => {
     setIsAnalyzing(true);
     setIsUploading(true);
     setUploadProgress(0);
     setStep("analyze");
+    setError(null);
+    setStatusText("Uploading your resume...");
     
     try {
-      // Simulate progress
-      setUploadProgress(30);
+      // Step 1: Upload file to Convex
+      setStatusText("Uploading file to storage...");
+      setUploadProgress(20);
       
-      // Upload file to get storage ID
-      const postUrl = await generateUploadUrl();
-      const formData = new FormData();
-      formData.append("file", file);
       
-      const uploadResponse = await fetch(postUrl, {
-        method: "POST",
-        body: formData,
-      });
-      
+      const fileStorageId = await uploadFileDirectly(file);
+      setUploadProgress(50);
+      // Step 2: Create resume record
+      setStatusText("Creating resume record...");
       setUploadProgress(60);
       
-      if (!uploadResponse.ok) throw new Error("Upload failed");
-      
-      const { storageId } = await uploadResponse.json();
-      const fileStorageId = storageId as Id<"_storage">;
-      
-      // Create resume record BEFORE analysis
-      setStatusText("Creating resume record...");
       const newResumeId = await uploadResume({
         userId: user?.id || "",
         fileStorageId: fileStorageId,
@@ -130,42 +200,65 @@ export default function ApplyModal({
       });
       
       setResumeId(newResumeId);
+      setUploadProgress(70);
       
-      // Send to analyze API with resumeId
-      setStatusText("Analyzing your resume...");
+        // Step 3: Schedule background analysis. This returns almost
+      // immediately — the reactive useEffect above (watching
+      // analyzingResume.analysisStatus) will pick up the result and
+      // move to the "review" step once it lands.
+      setStatusText("Starting AI analysis...");
+      setUploadProgress(80);
+
       const analyzeResponse = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileStorageId: fileStorageId,
+         fileStorageId: fileStorageId,
           jobTitle: jobTitle,
           jobDescription: "",
           resumeId: newResumeId,
-          userId: user?.id,
         }),
       });
-      
-      setUploadProgress(90);
-      
+
       if (!analyzeResponse.ok) {
-        const errorData = await analyzeResponse.json();
-        throw new Error(errorData.error || "Analysis failed");
+        const errorData = await analyzeResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to start analysis");
       }
+
+      setUploadProgress(90);
+      setStatusText("Analyzing your resume with AI...");
+      // Intentionally do NOT setStep("review") here — the useEffect
+      // above transitions state once analysisStatus resolves.
+ 
       
-      const analysisData = await analyzeResponse.json();
-      setAtsScore(analysisData.feedback?.overallScore || 65);
-      setAtsFeedback(analysisData.feedback);
-      
-      setUploadProgress(100);
-      setStep("review");
-      toast.success("Resume analyzed successfully!");
     } catch (error) {
       console.error("Analysis error:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to analyze resume. Please try again.");
-      setStep("upload");
-    } finally {
-      setIsAnalyzing(false);
-      setIsUploading(false);
+      setError(error instanceof Error ? error.message : "Failed to analyze resume. Please try again.");
+      toast.error("Failed to analyze resume. Please try again.");
+      
+      // Even on error, if we have a resumeId, we can still proceed
+      if (resumeId) {
+        // Use basic fallback feedback
+        setAtsScore(50);
+        setAtsFeedback({
+          overallScore: 50,
+          ATS: { 
+            score: 50, 
+            tips: [
+              { type: "warning", tip: "Analysis failed. Your resume has been saved but not analyzed." }
+            ] 
+          },
+          content: { score: 50, tips: [] },
+          skills: { score: 50, tips: [] },
+          structure: { score: 50, tips: [] },
+          toneAndStyle: { score: 50, tips: [] }
+        });
+        setStep("review");
+        toast.error("Resume saved but analysis incomplete. You can still apply.");
+      } else {
+        setStep("upload");
+      }
+   
     }
   };
 
@@ -176,6 +269,7 @@ export default function ApplyModal({
     }
 
     setIsSubmitting(true);
+    setStatusText("Submitting your application...");
     
     try {
       let resumeFileId: Id<"_storage"> | undefined;
@@ -190,20 +284,9 @@ export default function ApplyModal({
         // File should already be uploaded from the analyze step
         if (!resumeId) {
           // Fallback: upload the file
-          const postUrl = await generateUploadUrl();
-          const formData = new FormData();
-          formData.append("file", selectedFile);
-          
-          const uploadResponse = await fetch(postUrl, {
-            method: "POST",
-            body: formData,
-          });
-          
-          if (!uploadResponse.ok) throw new Error("Upload failed");
-          const { storageId } = await uploadResponse.json();
-          resumeFileId = storageId as Id<"_storage">;
-          
-          // Create resume record
+          const fileStorageId = await uploadFileDirectly(selectedFile);
+          resumeFileId = fileStorageId;
+
           const newResumeId = await uploadResume({
             userId: user.id,
             fileStorageId: resumeFileId,
@@ -225,7 +308,7 @@ export default function ApplyModal({
 
       const finalResumeId = resumeId || existingResumeId;
 
-      // Create application with resume reference
+      // Create application
       await createApplication({
         userId: user.id,
         jobId: jobId,
@@ -251,7 +334,8 @@ export default function ApplyModal({
       
     } catch (error) {
       console.error("Application error:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to submit application. Please try again.");
+      setError(error instanceof Error ? error.message : "Failed to submit application");
+      toast.error("Failed to submit application. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -261,10 +345,8 @@ export default function ApplyModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       
-      {/* Modal */}
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl mx-4 p-6 animate-in fade-in zoom-in duration-200">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -279,6 +361,25 @@ export default function ApplyModal({
             <X className="w-5 h-5 text-zinc-500" />
           </button>
         </div>
+
+        {/* Error Display with Retry */}
+        {error && step !== "success" && (
+          <div className="mb-4 p-4 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-rose-700 dark:text-rose-400">{error}</p>
+                <button
+                  onClick={handleRetry}
+                  className="mt-2 text-sm text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Step Indicator */}
         <div className="flex items-center justify-between mb-6 px-4">
@@ -311,7 +412,7 @@ export default function ApplyModal({
           })}
         </div>
 
-        {/* Status Text (when analyzing) */}
+        {/* Status Text */}
         {statusText && step === "analyze" && (
           <div className="text-center text-sm text-zinc-500 dark:text-zinc-400 mb-4">
             {statusText}
@@ -396,6 +497,7 @@ export default function ApplyModal({
                     onClick={() => {
                       setSelectedFile(null);
                       setStep("upload");
+                      setError(null);
                     }}
                     className="text-zinc-400 hover:text-zinc-600"
                   >
@@ -412,9 +514,18 @@ export default function ApplyModal({
                   onClick={() => {
                     if (useExistingResume && hasExistingResume && userResume) {
                       setResumeId(userResume._id);
-                      handleSubmitApplication();
+                      // Use fallback score for existing resume if no analysis
+                      setAtsScore(70);
+                      setAtsFeedback({
+                        overallScore: 70,
+                        ATS: { score: 70, tips: [{ type: "good", tip: "Using existing resume. You can still apply." }] },
+                        content: { score: 70, tips: [] },
+                        skills: { score: 70, tips: [] },
+                        structure: { score: 70, tips: [] },
+                        toneAndStyle: { score: 70, tips: [] }
+                      });
+                      setStep("review");
                     } else if (selectedFile) {
-                      // This will trigger the analyze flow
                       handleAnalyzeResume(selectedFile);
                     } else {
                       toast.error("Please upload a resume or use your existing one");
@@ -454,24 +565,27 @@ export default function ApplyModal({
                 <div className="flex flex-col items-center gap-4">
                   <CheckCircle className="w-16 h-16 text-emerald-500" />
                   <h3 className="text-xl font-semibold text-zinc-900 dark:text-white">
-                    Analysis Complete!
+                    {error ? "Analysis Incomplete" : "Analysis Complete!"}
                   </h3>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    {error ? "Your resume was saved but analysis encountered an issue." : "We've analyzed your resume against the job requirements."}
+                  </p>
                   <Button onClick={() => setStep("review")}>
-                    View Results
+                    {error ? "Continue Anyway" : "View Results"}
                   </Button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Step 3: Review */}
+          {/* Step 3: Review - SAME AS BEFORE */}
           {step === "review" && (
             <div className="space-y-4">
               {atsScore !== null && (
                 <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 border border-indigo-100 dark:border-indigo-800">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">ATS Match Score</p>
+                      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Resume Quality Score</p>
                       <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{atsScore}%</p>
                     </div>
                     <Sparkles className="w-8 h-8 text-amber-400" />

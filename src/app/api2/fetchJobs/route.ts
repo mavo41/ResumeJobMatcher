@@ -2,7 +2,7 @@
 // route that fetches jobs from RemoteOK, Remotive, Greenhouse (dynamic list),validates data, caches results, and inserts into Convex DB.
 
 import { NextResponse } from "next/server";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation } from "convex/nextjs";
 import { api } from "../../../../convex/_generated/api";
 import { z } from "zod";
 
@@ -23,6 +23,7 @@ const CACHE_WINDOW = 1000 * 60 * 60 * 6;
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const apiKey = url.searchParams.get("apiKey");
+  const force = url.searchParams.get("force") === "true";
 
   // Protect this route with an internal API key
   if (apiKey !== process.env.INTERNAL_API_KEY) {
@@ -31,8 +32,7 @@ export async function GET(req: Request) {
 
   try {
     // Trigger the Convex mutation that performs all fetching, caching, inserts
-    const result = await fetchMutation(api.jobs.fetchAllSources, {});
-
+  const result = await fetchAction(api.jobs.fetchAllSources, { force });
     return NextResponse.json({
       status: "ok",
       result,

@@ -17,6 +17,7 @@ export interface Candidate {
   notes?: string;
   resumeFileId?: any;
   anonymizedResume?: string;
+  analysisStatus?: "pending" | "processing" | "completed" | "failed"
 }
 
 export interface ExplainableScore {

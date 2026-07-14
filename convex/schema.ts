@@ -366,11 +366,15 @@ vectors: defineTable({
     experience: v.number(),
     candidateId: v.string(),
   }),
+  experienceTier: v.optional(
+    v.union(v.literal("junior"), v.literal("mid"), v.literal("senior"))
+  ),
   createdAt: v.number(),
   updatedAt: v.number(),
 }).index("by_candidateId", ["metadata.candidateId"])
   .index("by_createdAt", ["createdAt"])
-  .index("by_updatedAt", ["updatedAt"]),
+  .index("by_updatedAt", ["updatedAt"])
+  .index("by_experienceTier", ["experienceTier"]),
 
 // Embeddings cache table
 embeddingsCache: defineTable({
@@ -405,7 +409,13 @@ embeddingsCache: defineTable({
       overallScore: v.number(),
       ATS: v.object({
         score: v.number(),
-        tips: v.array(v.object({ type: v.string(), tip: v.string() })),
+        tips: v.array(
+          v.object({
+             type: v.string(),
+              tip: v.string(),
+                    explanation: v.string(), 
+ })),
+
       }),
       toneAndStyle: v.object({
         score: v.number(),
@@ -450,6 +460,17 @@ embeddingsCache: defineTable({
     })
   ),
 
+  analysisStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed")
+      )
+    ),
+    analysisError: v.optional(v.string()),
+
+
   createdAt: v.number(),
   updatedAt: v.number(),
   userId: v.string(),
@@ -460,7 +481,11 @@ embeddingsCache: defineTable({
   ),
 }).index("by_userId", ["userId"]),
 
-
+resumeAnalysisCache: defineTable({
+    contentHash: v.string(),
+    feedback: v.any(),
+    createdAt: v.number(),
+  }).index("by_contentHash", ["contentHash"]),
  
   //  Jobs table
   jobs: defineTable({
@@ -489,12 +514,16 @@ embeddingsCache: defineTable({
     removalReason: v.optional(v.string()),// moderation reason
 
   }).index("by_status", ["status"])
-  .index("by_employerId", ["employerId"]),
+  .index("by_employerId", ["employerId"])
+  .index("by_status_removed", ["status", "isRemoved"])
+  .index("by_employer_title_company_location", ["employerId", "title", "company", "location"]),
 
   //Applications table
   applications: defineTable({
     userId: v.string(),
     jobId: v.id("jobs"),
+    employerId: v.optional(v.string()),
+
     status: v.union(
       v.literal("shortlisted"),
       v.literal("applied"),
@@ -515,10 +544,30 @@ embeddingsCache: defineTable({
   skills: v.optional(v.array(v.string())),
   experience: v.optional(v.number()),
   resumeFileId: v.optional(v.id("_storage")),
+  analysisStatus: v.optional(
+    v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    )
+  ),
+  analysisError: v.optional(v.string()),
+  analysisSummary: v.optional(
+    v.object({
+      risk: v.union(v.literal("LOW"), v.literal("MEDIUM"), v.literal("HIGH")),
+      confidence: v.number(),
+      recommendation: v.string(),
+      topStrengths: v.array(v.string()),
+      topWeaknesses: v.array(v.string()),
+    })
+  ),
+
 
   })
     .index("by_userId", ["userId"])
-    .index("by_jobId", ["jobId"]),
+    .index("by_jobId", ["jobId"])
+    .index("by_employerId", ["employerId"]),
 
    
    

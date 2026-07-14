@@ -1,6 +1,9 @@
 import { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
+
 
 // Create a new job (auth-aware)
 export const createJob = mutation({
@@ -53,13 +56,12 @@ export const createJob = mutation({
      // Check for existing job to avoid duplicates
     const existingJob = await ctx.db
       .query("jobs")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("title"), args.title),
-          q.eq(q.field("company"), args.company),
-          q.eq(q.field("location"), args.location),
-          q.eq(q.field("employerId"), identity.subject)
-        )
+      .withIndex("by_employer_title_company_location", (q) =>
+        q
+          .eq("employerId", args.userId)
+          .eq("title", args.title)
+          .eq("company", args.company)
+          .eq("location", args.location)
       )
       .first();
 
@@ -118,8 +120,9 @@ export const getOpenJobs = query({
   handler: async (ctx, args) => {
     const jobs = await ctx.db
       .query("jobs")
-      .withIndex("by_status", (q) => q.eq("status", "open"))
-      .filter(q => q.eq(q.field("isRemoved"), false))
+      .withIndex("by_status_removed", (q) =>
+        q.eq("status", "open").eq("isRemoved", false)
+      )
       .order("desc")
       .paginate({
         cursor: args.cursor ?? null, 
@@ -134,11 +137,16 @@ export const getOpenJobs = query({
 // Get employer jobs with application counts
 export const getEmployerJobs = query({
   args: { employerId: v.string() },
-  handler: async (ctx, { employerId }) => {
-    const jobs = await ctx.db
-      .query("jobs")
-      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
-      .collect();
+   handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
+
+     const jobs = await ctx.db
+       .query("jobs")
+       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+       .collect();
 
     // Get application counts for each job
     const jobsWithCounts = await Promise.all(
@@ -163,20 +171,26 @@ export const getEmployerJobs = query({
 export const getJobStats = query({
   args: { employerId: v.string() },
   handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
     const jobs = await ctx.db
       .query("jobs")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
       .collect();
     
     // Count applications for each job
-    let totalApplications = 0;
-    for (const job of jobs) {
-      const apps = await ctx.db
-        .query("applications")
-        .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
-        .collect();
-      totalApplications += apps.length;
-    }
+    const applicationCounts = await Promise.all(
+      jobs.map((job) =>
+        ctx.db
+          .query("applications")
+          .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+          .collect()
+          .then((apps) => apps.length)
+      )
+    );
+    const totalApplications = applicationCounts.reduce((sum, c) => sum + c, 0);
     
     const activeJobs = jobs.filter(j => j.status === "open").length;
     
@@ -340,231 +354,284 @@ export const recordFetchRun = mutation({
 });
 
 // Action: Cron-triggered fetch
-export const fetchAllSources = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const SIX_HOURS = 1000 * 60 * 60 * 6;
+const SOURCE_TIMEOUT_MS = 15_000;
+const GREENHOUSE_COMPANY_TIMEOUT_MS = 10_000;
+const MAX_GREENHOUSE_CONCURRENCY = 5;
+const SIX_HOURS = 1000 * 60 * 60 * 6;
 
-    // Checking global jobSourceLogs timestamp for "scheduler" to avoid doubling up
-    const lastGlobal = await ctx.db
-    .query("jobSourceLogs")
-    .withIndex("by_source", (q) => q.eq("source", "scheduler"))
-    .first();
-    if (lastGlobal && now - lastGlobal.lastFetched < SIX_HOURS) {
-      return { status: "skipped", reason: "recent run" };
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface SourceResult {
+  source: string;
+  status: "ok" | "skipped" | "failed" | "timeout";
+  inserted: number;
+  detail?: string;
+}
+
+
+async function fetchRemoteOKSource(ctx: any, now: number, force: boolean): Promise<SourceResult> {
+  const last = await ctx.runQuery(internal.jobs.getSourceLog, { source: "remoteok" });
+  if (!force && last && now - last.lastFetched < SIX_HOURS) {
+    return { source: "remoteok", status: "skipped", inserted: 0, detail: "recent run" };
+  }
+
+  try {
+    const resp = await fetchWithTimeout(
+      "https://remoteok.com/api",
+      {
+        headers: {
+          "User-Agent": "ResumeMatcher/1.0 (https://your-app.com; contact@example.com)",
+          Accept: "application/json",
+        },
+      },
+      SOURCE_TIMEOUT_MS
+    );
+
+    if (!resp.ok) {
+      return { source: "remoteok", status: "failed", inserted: 0, detail: `HTTP ${resp.status}` };
     }
 
-    // Mark scheduler run start (or update)
-    const existingSchedulerLog = await ctx.db
-      .query("jobSourceLogs")
-      .withIndex("by_source", (q) => q.eq("source", "scheduler"))
-      .first();
+    const data = await resp.json();
+    const remoteJobs = Array.isArray(data) ? data.filter((d: any) => d.slug || d.id) : [];
+    const chunk = remoteJobs.slice(0, 50);
 
-    if (existingSchedulerLog) {
-      await ctx.db.patch(existingSchedulerLog._id, {
-        lastFetched: now,
-        jobCount: 0,
-      });
-    } else {
-      await ctx.db.insert("jobSourceLogs", {
-        source: "scheduler",
-        lastFetched: now,
-        jobCount: 0,
-      });
-    }
-
-    const identity = await ctx.auth.getUserIdentity();
-    const userId = identity?.subject ?? "system";
-
-    const warnings: string[] = [];
     let inserted = 0;
-
-    // Helper to insert normalized job (ensures required timestamps are present)
-    async function safeInsertJob(normalized: {
-      logoUrl?: Id<"_storage">;
-      title: string;
-      company: string;
-      location: string;
-      description: string;
-      requirements?: string[];
-      salaryRange?: string;
-
-      status?: "open" | "closed" | "draft";
-      tag?: "MATCH" | "RECOMMENDED";
-    }) {
-      const nowTs = Date.now();
-      try {
-      await ctx.db.insert("jobs", {
-        logoUrl: normalized.logoUrl,
-        title: normalized.title,
-        company: normalized.company,
-        location: normalized.location,
-        postedAt: nowTs,
-        description: normalized.description,
-        requirements: normalized.requirements ?? [],
-        salaryRange: normalized.salaryRange,
-        status: normalized.status ?? "open",
-        tag: normalized.tag ?? "RECOMMENDED",
-        employerId: "", // system user
-        createdAt: nowTs,
-        updatedAt: nowTs,
-        isRemoved: false,
-        removedAt: undefined,
-        removedBy: undefined,
-        removalReason: undefined,
-
-      });
-      inserted++;
-       } catch (e: any) {
-        warnings.push(`DB insert failed for ${normalized.title}: ${e.message}`);
-        console.error("DB insert error:", e);
-      }
-    }
-
-    // 1. RemoteOK fetch
-    try {
-      const lastRemote = await ctx.db
-      .query("jobSourceLogs")
-      .withIndex("by_source", (q) => q.eq("source", "remoteok"))
-      .first();
-      if (!lastRemote || (now - lastRemote.lastFetched) > SIX_HOURS) {
-        const resp = await fetch("https://remoteok.com/api", {
-          headers: { "User-Agent":
-             "ResumeMatcher/1.0 (https://your-app.com; contact@example.com)", 
-             "Accept": "application/json" },
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          const remoteJobs = Array.isArray(data)
-           ? data.filter((d: any) => d.slug || d.id) : [];
-          const chunk = remoteJobs.slice(0, 50);
-          for (let i = 0; i < chunk.length; i += 5) {
-            const batch = chunk.slice(i, i + 5);
-            await Promise.all(batch.map(async (job: any) => {
-              try {
-                await safeInsertJob({
-                  logoUrl: job.company_logo || job.logo || undefined,
-                  title: job.position || job.title || String(job.slug || job.id || "Untitled"),
-                  company: job.company || job.company_name || "Unknown",
-                  location: job.location || "Remote",
-                  description: job.description || "",
-                });
-              } catch (e) {
-                warnings.push(`RemoteOK validation/insert failed for ${job.slug || job.id}`);
-              }
-            }));
-          }
-          const existingRemote = await ctx.db.query("jobSourceLogs").withIndex("by_source", (q) => q.eq("source", "remoteok")).first();
-          await ctx.db.patch(existingRemote?._id ?? (await ctx.db.insert("jobSourceLogs", { source: "remoteok", lastFetched: now, jobCount: remoteJobs.length })), {
-            lastFetched: now,
-            jobCount: remoteJobs.length,
-          }).catch(async () => {
-            await ctx.db.insert("jobSourceLogs", { source: "remoteok", lastFetched: now, jobCount: remoteJobs.length });
-          });
-        } else {
-          warnings.push("RemoteOK responded non-OK");
-        }
-      }
-    } catch (err) {
-      warnings.push("RemoteOK fetch error");
-      console.error("RemoteOK fetch error:", err);
-    }
-
-    // 2. Remotive
-    try {
-      const lastRem = await ctx.db.query("jobSourceLogs").withIndex("by_source", (q) => q.eq("source", "remotive")).first();
-      if (!lastRem || (now - lastRem.lastFetched) > SIX_HOURS) {
-        const resp = await fetch("https://remotive.io/api/remote-jobs");
-        if (resp.ok) {
-          const data = await resp.json();
-          const remJobs = Array.isArray(data.jobs) ? data.jobs : (data.jobs || []);
-          const chunk = remJobs.slice(0, 50);
-          for (let i = 0; i < chunk.length; i += 5) {
-            const batch = chunk.slice(i, i + 5);
-            await Promise.all(batch.map(async (job: any) => {
-              try {
-                await safeInsertJob({
-                  logoUrl: job.company_logo || undefined,
-                  title: job.title || job.position || "Untitled",
-                  company: job.company_name || "Unknown",
-                  location: job.candidate_required_location || "Remote",
-                  description: job.description || "",
-                });
-              } catch (e) {
-                warnings.push(`Remotive validation/insert failed for ${job.id || job.title}`);
-              }
-            }));
-          }
-          const existingRemotive = await ctx.db
-          .query("jobSourceLogs")
-          .withIndex("by_source", (q) => q
-          .eq("source", "remotive"))
-          .first();
-          await ctx.db.patch(existingRemotive?._id ?? (await ctx.db.insert("jobSourceLogs", { source: "remotive", lastFetched: now, jobCount: remJobs.length })), {
-            lastFetched: now,
-            jobCount: remJobs.length,
-          }).catch(async () => {
-            await ctx.db.insert("jobSourceLogs", { source: "remotive", lastFetched: now, jobCount: remJobs.length });
-          });
-        } else {
-          warnings.push("Remotive responded non-OK");
-        }
-      }
-    } catch (err) {
-      warnings.push("Remotive fetch error");
-      console.error("Remotive fetch error:", err);
-    }
-
-    // 3. Greenhouse
-    try {
-      const lastGh = await ctx.db.query("jobSourceLogs").withIndex("by_source", (q) => q.eq("source", "greenhouse")).first();
-      if (!lastGh || (now - lastGh.lastFetched) > SIX_HOURS) {
-        const companies = await ctx.db.query("greenhouseCompanies").collect();
-        for (const company of companies) {
+    for (let i = 0; i < chunk.length; i += 5) {
+      const batch = chunk.slice(i, i + 5);
+      await Promise.all(
+        batch.map(async (job: any) => {
           try {
-            const resp = await fetch(`https://boards-api.greenhouse.io/v1/boards/${company.handle}/jobs`);
-            if (!resp.ok) { warnings.push(`Greenhouse ${company.handle} non-OK`); continue; }
-            const data = await resp.json();
-            const jobsList = data.jobs || [];
-            const chunk = jobsList.slice(0, 50);
-            for (let i = 0; i < chunk.length; i += 5) {
-              const batch = chunk.slice(i, i + 5);
-              await Promise.all(batch.map(async (job: any) => {
-                try {
-                  await safeInsertJob({
-                    logoUrl: undefined,
-                    title: job.title || "Untitled",
-                    company: company.name || company.handle,
-                    location: job.location?.name || "Remote",
-                    description: job.content || "",
-                  });
-                } catch (e) {
-                  warnings.push(`Greenhouse insert failed for ${company.handle}:${job.id}`);
-                }
-              }));
-            }
-          } catch (e) {
-            warnings.push(`Greenhouse fetch error for ${company.handle}`);
+            await ctx.runMutation(internal.jobs.insertFetchedJob, {
+              logoUrl: undefined,
+              title: job.position || job.title || String(job.slug || job.id || "Untitled"),
+              company: job.company || job.company_name || "Unknown",
+              location: job.location || "Remote",
+              description: job.description || "",
+            });
+            inserted++;
+          } catch {
+            // individual job insert failures don't abort the source
           }
-        }
-        const existingGreenhouse = await ctx.db.query("jobSourceLogs").withIndex("by_source", (q) => q.eq("source", "greenhouse")).first();
-        await ctx.db.patch(existingGreenhouse?._id ?? (await ctx.db.insert("jobSourceLogs", { source: "greenhouse", lastFetched: now, jobCount: 0 })), {
-          lastFetched: now,
-          jobCount: 0,
-        }).catch(async () => {
-          await ctx.db.insert("jobSourceLogs", { source: "greenhouse", lastFetched: now, jobCount: 0 });
-        });
-      }
-    } catch (err) {
-      warnings.push("Greenhouse flow error");
-      console.error("Greenhouse flow error:", err);
+        })
+      );
     }
 
-    console.log("✅ Finished fetching jobs from all sources.");
-    await ctx.db.insert("jobFetchLogs", { count: inserted, warnings, timestamp: Date.now() }).catch(() => { /* ignore */ });
+    await ctx.runMutation(internal.jobs.upsertSourceLog, {
+      source: "remoteok",
+      lastFetched: now,
+      jobCount: remoteJobs.length,
+    });
 
-    return { status: "ok", inserted, warnings };
+    return { source: "remoteok", status: "ok", inserted };
+  } catch (err: any) {
+    const detail = err?.name === "AbortError" ? "timed out" : err?.message || "unknown error";
+    return {
+      source: "remoteok",
+      status: err?.name === "AbortError" ? "timeout" : "failed",
+      inserted: 0,
+      detail,
+    };
+  }
+}
+async function fetchRemotiveSource(ctx: any, now: number, force: boolean): Promise<SourceResult> {
+
+  const last = await ctx.runQuery(internal.jobs.getSourceLog, { source: "remotive" });
+if (!force && last && now - last.lastFetched < SIX_HOURS) {
+      return { source: "remotive", status: "skipped", inserted: 0, detail: "recent run" };
+  }
+
+  try {
+    const resp = await fetchWithTimeout(
+      "https://remotive.io/api/remote-jobs",
+      {},
+      SOURCE_TIMEOUT_MS
+    );
+
+    if (!resp.ok) {
+      return { source: "remotive", status: "failed", inserted: 0, detail: `HTTP ${resp.status}` };
+    }
+
+    const data = await resp.json();
+    const remJobs = Array.isArray(data.jobs) ? data.jobs : [];
+    const chunk = remJobs.slice(0, 50);
+
+    let inserted = 0;
+    for (let i = 0; i < chunk.length; i += 5) {
+      const batch = chunk.slice(i, i + 5);
+      await Promise.all(
+        batch.map(async (job: any) => {
+          try {
+            await ctx.runMutation(internal.jobs.insertFetchedJob, {
+              logoUrl: undefined,
+              title: job.title || job.position || "Untitled",
+              company: job.company_name || "Unknown",
+              location: job.candidate_required_location || "Remote",
+              description: job.description || "",
+            });
+            inserted++;
+          } catch {
+            // individual job insert failures don't abort the source
+          }
+        })
+      );
+    }
+
+    await ctx.runMutation(internal.jobs.upsertSourceLog, {
+      source: "remotive",
+      lastFetched: now,
+      jobCount: remJobs.length,
+    });
+
+    return { source: "remotive", status: "ok", inserted };
+  } catch (err: any) {
+    const detail = err?.name === "AbortError" ? "timed out" : err?.message || "unknown error";
+    return {
+      source: "remotive",
+      status: err?.name === "AbortError" ? "timeout" : "failed",
+      inserted: 0,
+      detail,
+    };
+  }
+}
+
+async function fetchOneGreenhouseCompany(
+  ctx: any,
+  company: { handle: string; name: string }
+): Promise<{ inserted: number; warning?: string }> {
+  try {
+    const resp = await fetchWithTimeout(
+      `https://boards-api.greenhouse.io/v1/boards/${company.handle}/jobs`,
+      {},
+      GREENHOUSE_COMPANY_TIMEOUT_MS
+    );
+
+    if (!resp.ok) {
+      return { inserted: 0, warning: `Greenhouse ${company.handle}: HTTP ${resp.status}` };
+    }
+
+    const data = await resp.json();
+    const jobsList = data.jobs || [];
+    const chunk = jobsList.slice(0, 50);
+
+    let inserted = 0;
+    for (let i = 0; i < chunk.length; i += 5) {
+      const batch = chunk.slice(i, i + 5);
+      await Promise.all(
+        batch.map(async (job: any) => {
+          try {
+            await ctx.runMutation(internal.jobs.insertFetchedJob, {
+              logoUrl: undefined,
+              title: job.title || "Untitled",
+              company: company.name || company.handle,
+              location: job.location?.name || "Remote",
+              description: job.content || "",
+            });
+            inserted++;
+          } catch {
+            // individual job insert failures don't abort the company
+          }
+        })
+      );
+    }
+
+    return { inserted };
+  } catch (err: any) {
+    const detail = err?.name === "AbortError" ? "timed out" : err?.message || "unknown error";
+    return { inserted: 0, warning: `Greenhouse ${company.handle}: ${detail}` };
+  }
+}
+
+async function fetchGreenhouseSource(ctx: any, now: number, force: boolean): Promise<SourceResult> {
+
+  const last = await ctx.runQuery(internal.jobs.getSourceLog, { source: "greenhouse" });
+if (!force && last && now - last.lastFetched < SIX_HOURS) {
+      return { source: "greenhouse", status: "skipped", inserted: 0, detail: "recent run" };
+  }
+
+  const companies = await ctx.runQuery(internal.jobs.getAllGreenhouseCompaniesInternal, {});
+  const warnings: string[] = [];
+  let totalInserted = 0;
+
+  // Bounded concurrency: process companies in fixed-size batches rather
+  // than fully sequential (old behavior) or fully unbounded parallel
+  // (which could hammer many companies' APIs at once).
+  for (let i = 0; i < companies.length; i += MAX_GREENHOUSE_CONCURRENCY) {
+    const batch = companies.slice(i, i + MAX_GREENHOUSE_CONCURRENCY);
+    const results = await Promise.all(batch.map((c: any) => fetchOneGreenhouseCompany(ctx, c)));
+    for (const r of results) {
+      totalInserted += r.inserted;
+      if (r.warning) warnings.push(r.warning);
+    }
+  }
+
+  await ctx.runMutation(internal.jobs.upsertSourceLog, {
+    source: "greenhouse",
+    lastFetched: now,
+    jobCount: totalInserted,
+  });
+
+  return {
+    source: "greenhouse",
+    status: warnings.length > 0 && totalInserted === 0 ? "failed" : "ok",
+    inserted: totalInserted,
+    detail: warnings.length > 0 ? warnings.join("; ") : undefined,
+  };
+}
+
+export const fetchAllSources = action({
+   args: { force: v.optional(v.boolean()) },
+  handler: async (ctx, { force = false }): Promise<{ status: string; results: SourceResult[] }> => {
+    const now = Date.now();
+
+    const schedulerLog = await ctx.runQuery(internal.jobs.getSourceLog, { source: "scheduler" });
+    if (!force && schedulerLog && now - schedulerLog.lastFetched < SIX_HOURS) {
+      return { status: "skipped", results: [{ source: "scheduler", status: "skipped", inserted: 0, detail: "recent run" }] };
+    }
+    await ctx.runMutation(internal.jobs.upsertSourceLog, {
+      source: "scheduler",
+      lastFetched: now,
+      jobCount: 0,
+    });
+
+    // The three sources are now fully independent — Promise.allSettled
+    // guarantees each one's success/failure has zero effect on the
+    // others (Issue #8). Previously these ran sequentially inside
+    // individual try/catch blocks; the isolation was accidental. It is
+    // now explicit and guaranteed by construction.
+    const settled = await Promise.allSettled([
+      fetchRemoteOKSource(ctx, now, force),
+      fetchRemotiveSource(ctx, now, force),
+      fetchGreenhouseSource(ctx, now, force),
+    ]);
+
+    const results: SourceResult[] = settled.map((s, i) => {
+      const sourceName = ["remoteok", "remotive", "greenhouse"][i];
+      if (s.status === "fulfilled") return s.value;
+      return { source: sourceName, status: "failed", inserted: 0, detail: String(s.reason) };
+    });
+
+    const totalInserted = results.reduce((sum, r) => sum + r.inserted, 0);
+    const allWarnings = results.filter((r) => r.detail).map((r) => `${r.source}: ${r.detail}`);
+
+    await ctx.runMutation(internal.jobs.insertJobFetchLog, {
+      count: totalInserted,
+      warnings: allWarnings,
+      timestamp: now,
+    });
+
+    console.log(
+      `✅ fetchAllSources complete. Inserted ${totalInserted} jobs. Results: ${JSON.stringify(results)}`
+    );
+
+    return { status: "ok", results };
   },
 });
 
@@ -589,6 +656,81 @@ export const getEmployerJobModerationStatus = query({
       removedAt: job.removedAt ?? null,
       status: job.status,
     };
+  },
+});
+
+export const insertFetchedJob = internalMutation({
+  args: {
+    logoUrl: v.optional(v.id("_storage")),
+    title: v.string(),
+    company: v.string(),
+    location: v.string(),
+    description: v.string(),
+    requirements: v.optional(v.array(v.string())),
+    salaryRange: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("open"), v.literal("closed"), v.literal("draft"))),
+    tag: v.optional(v.union(v.literal("MATCH"), v.literal("RECOMMENDED"))),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.insert("jobs", {
+      logoUrl: args.logoUrl,
+      title: args.title,
+      company: args.company,
+      location: args.location,
+      postedAt: now,
+      description: args.description,
+      requirements: args.requirements ?? [],
+      salaryRange: args.salaryRange,
+      status: args.status ?? "open",
+      tag: args.tag ?? "RECOMMENDED",
+      employerId: "", // system-sourced job
+      createdAt: now,
+      updatedAt: now,
+      isRemoved: false,
+      removedAt: undefined,
+      removedBy: undefined,
+      removalReason: undefined,
+    });
+  },
+});
+
+export const upsertSourceLog = internalMutation({
+  args: { source: v.string(), lastFetched: v.number(), jobCount: v.number() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("jobSourceLogs")
+      .withIndex("by_source", (q) => q.eq("source", args.source))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, args);
+    } else {
+      await ctx.db.insert("jobSourceLogs", args);
+    }
+  },
+});
+
+export const getSourceLog = internalQuery({
+  args: { source: v.string() },
+  handler: async (ctx, { source }) => {
+    return await ctx.db
+      .query("jobSourceLogs")
+      .withIndex("by_source", (q) => q.eq("source", source))
+      .first();
+  },
+});
+
+export const getAllGreenhouseCompaniesInternal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("greenhouseCompanies").collect();
+  },
+});
+
+export const insertJobFetchLog = internalMutation({
+  args: { count: v.number(), warnings: v.array(v.string()), timestamp: v.number() },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("jobFetchLogs", args);
   },
 });
 

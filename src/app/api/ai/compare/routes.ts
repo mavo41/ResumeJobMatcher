@@ -1,12 +1,11 @@
 // app/api/ai/compare/route.ts
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
+import { auth } from "@clerk/nextjs/server";
+import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { AIPipeline } from "../../../lib/ai/AIPipeline";
 import { JobRequirements } from "../../../lib/ai/types";
-
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 // ============================================================
 // Helper Functions
@@ -17,7 +16,7 @@ function getTopSkill(results: any[]): string {
   for (const result of results) {
     const skills = result.parsedResume?.skills || [];
     for (const skill of skills) {
-      const name = typeof skill === 'string' ? skill : skill.name;
+      const name = typeof skill === "string" ? skill : skill.name;
       if (name) {
         skillCount[name] = (skillCount[name] || 0) + 1;
       }
@@ -41,10 +40,10 @@ function getMostMissingSkill(results: any[]): string {
 
   for (const result of results) {
     const skills = result.parsedResume?.skills || [];
-    const skillNames = skills.map((s: any) => typeof s === 'string' ? s : s.name);
+    const skillNames = skills.map((s: any) => (typeof s === "string" ? s : s.name));
     const uniqueSkills = new Set<string>(skillNames);
     for (const skill of uniqueSkills) {
-      if (skill && typeof skill === 'string') {
+      if (skill && typeof skill === "string") {
         skillCount[skill] = (skillCount[skill] || 0) + 1;
       }
     }
@@ -74,9 +73,7 @@ function generateComparisonRecommendations(rankings: any[], insights: any): stri
   }
 
   if (goodCandidates.length > 0) {
-    recommendations.push(
-      `${goodCandidates.length} candidate(s) are strong backups`
-    );
+    recommendations.push(`${goodCandidates.length} candidate(s) are strong backups`);
   }
 
   if (insights.missingSkill !== "Unknown") {
@@ -104,7 +101,26 @@ function generateComparisonRecommendations(rankings: any[], insights: any): stri
 
 export async function POST(request: Request) {
   try {
-    const { candidateIds, jobId, employerId } = await request.json();
+    // 1. Authenticate the caller server-side. The employerId used for
+    //    every downstream read/write below comes ONLY from this verified
+    //    session — never from the request body.
+    const { userId, getToken } = await auth();
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const token = (await getToken({ template: "convex" })) ?? undefined;
+    if (!token) {
+      return NextResponse.json(
+        { error: "Unable to verify session with Convex" },
+        { status: 401 }
+      );
+    }
+
+    const employerId = userId;
+
+    const { candidateIds, jobId } = await request.json();
 
     if (!candidateIds || candidateIds.length < 2) {
       return NextResponse.json(
@@ -113,49 +129,56 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!employerId) {
-      return NextResponse.json(
-        { error: "employerId is required" },
-        { status: 400 }
-      );
-    }
-
-    // 1. Fetch job requirements
+    // 2. Fetch job requirements and verify the job actually belongs to
+    //    the authenticated employer before using or persisting anything
+    //    against it.
     let jobRequirements: JobRequirements | null = null;
     if (jobId) {
-      const job = await convex.query(api.jobs.getJobById, {
-        jobId: jobId as Id<"jobs">,
-      });
-      
-      if (job) {
-        jobRequirements = {
-          jobRole: job.title || "Software Engineer",
-          requiredSkills: (job.requirements || []).map((r: any) => ({
-            name: typeof r === 'string' ? r : r.name || r,
-            mandatory: true,
-          })),
-          preferredSkills: [],
-          mandatorySkills: [],
-          certifications: [],
-          educationLevel: "bachelors",
-          educationField: "Computer Science",
-          minExperience: 3,
-        };
+      const job = await fetchQuery(
+        api.jobs.getJobById,
+        { jobId: jobId as Id<"jobs"> },
+        { token }
+      );
+
+      if (!job) {
+        return NextResponse.json({ error: "Job not found" }, { status: 404 });
       }
+
+      if (job.employerId !== employerId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      jobRequirements = {
+        jobRole: job.title || "Software Engineer",
+        requiredSkills: (job.requirements || []).map((r: any) => ({
+          name: typeof r === "string" ? r : r.name || r,
+          mandatory: true,
+        })),
+        preferredSkills: [],
+        mandatorySkills: [],
+        certifications: [],
+        educationLevel: "bachelors",
+        educationField: "Computer Science",
+        minExperience: 3,
+      };
     }
 
-    // 2. Fetch each candidate's application data
-    // FIX: Use getEmployerApplications to get all applications, then filter
+    // 3. Fetch this employer's applications. getEmployerApplications now
+    //    also independently verifies identity.subject === employerId
+    //    (see convex/applications.ts change below) — defense in depth.
     let allApplications: any[] = [];
     try {
-      allApplications = await convex.query(api.applications.getEmployerApplications, {
-        employerId,
-      });
+      allApplications = await fetchQuery(
+        api.applications.getEmployerApplications,
+        { employerId },
+        { token }
+      );
     } catch (error) {
       console.warn("Could not fetch applications, using fallback:", error);
     }
 
-    // Filter applications by the provided candidateIds
+    // Only compare candidates that actually belong to this employer's
+    // applicant pool — ignore any candidateIds that don't resolve.
     const applicationsMap = new Map();
     for (const app of allApplications) {
       if (candidateIds.includes(app._id)) {
@@ -163,13 +186,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Run each candidate through the AI Pipeline
+    const validCandidateIds = candidateIds.filter((id: string) => applicationsMap.has(id));
+
+    if (validCandidateIds.length < 2) {
+      return NextResponse.json(
+        { error: "At least 2 valid candidates belonging to this employer are required" },
+        { status: 400 }
+      );
+    }
+
+    // 4. Run each candidate through the AI Pipeline
     const pipeline = new AIPipeline();
     const results = await Promise.all(
-      candidateIds.map(async (id: string) => {
+      validCandidateIds.map(async (id: string) => {
         const application = applicationsMap.get(id);
         const resumeText = application?.notes || "No resume text available";
-        
+
         const defaultJob: JobRequirements = jobRequirements || {
           jobRole: "Software Engineer",
           requiredSkills: [{ name: "JavaScript", mandatory: true }],
@@ -181,11 +213,7 @@ export async function POST(request: Request) {
           minExperience: 2,
         };
 
-        const result = await pipeline.processResume(
-          resumeText,
-          defaultJob,
-          id
-        );
+        const result = await pipeline.processResume(resumeText, defaultJob, id, token);
 
         return {
           candidateId: id,
@@ -195,7 +223,7 @@ export async function POST(request: Request) {
       })
     );
 
-    // 4. Rank candidates by overall score
+    // 5. Rank candidates by overall score
     const rankings = results
       .map((r) => ({
         candidateId: r.candidateId,
@@ -211,7 +239,7 @@ export async function POST(request: Request) {
       .sort((a, b) => b.score - a.score)
       .map((item, index) => ({ ...item, rank: index + 1 }));
 
-    // 5. Generate comparison insights
+    // 6. Generate comparison insights
     const insights = {
       topSkill: getTopSkill(results),
       missingSkill: getMostMissingSkill(results),
@@ -220,34 +248,39 @@ export async function POST(request: Request) {
       ),
       totalCandidates: rankings.length,
       distribution: {
-        top: rankings.filter(r => r.score >= 80).length,
-        middle: rankings.filter(r => r.score >= 60 && r.score < 80).length,
-        bottom: rankings.filter(r => r.score < 60).length,
+        top: rankings.filter((r) => r.score >= 80).length,
+        middle: rankings.filter((r) => r.score >= 60 && r.score < 80).length,
+        bottom: rankings.filter((r) => r.score < 60).length,
       },
     };
 
-    // 6. Save comparison to Convex
+    // 7. Save comparison to Convex, scoped to the authenticated employer.
+    //    saveComparison also independently verifies ownership.
     let comparisonId = null;
     try {
-      comparisonId = await convex.mutation(api.ai.saveComparison, {
-        employerId,
-        jobId: jobId ? (jobId as Id<"jobs">) : undefined,
-        candidateIds,
-        rankings: rankings.map(r => ({
-          candidateId: r.candidateId,
-          rank: r.rank,
-          score: r.score,
-          recommendation: r.recommendation,
-          strengths: r.strengths,
-          weaknesses: r.weaknesses,
-        })),
-        insights,
-      });
+      comparisonId = await fetchMutation(
+        api.ai.saveComparison,
+        {
+          employerId,
+          jobId: jobId ? (jobId as Id<"jobs">) : undefined,
+          candidateIds: validCandidateIds,
+          rankings: rankings.map((r) => ({
+            candidateId: r.candidateId,
+            rank: r.rank,
+            score: r.score,
+            recommendation: r.recommendation,
+            strengths: r.strengths,
+            weaknesses: r.weaknesses,
+          })),
+          insights,
+        },
+        { token }
+      );
     } catch (error) {
       console.warn("Failed to save comparison to Convex:", error);
     }
 
-    // 7. Generate recommendations
+    // 8. Generate recommendations
     const recommendations = generateComparisonRecommendations(rankings, insights);
 
     return NextResponse.json({
@@ -259,9 +292,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Comparison Error:", error);
-    return NextResponse.json(
-      { error: "Failed to compare candidates" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to compare candidates" }, { status: 500 });
   }
 }

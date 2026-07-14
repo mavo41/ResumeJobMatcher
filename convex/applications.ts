@@ -1,6 +1,7 @@
 // convex/applications.ts
-import { mutation, query } from "./_generated/server";
+import { mutation, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 // Create an application
 export const createApplication = mutation({
@@ -27,9 +28,16 @@ export const createApplication = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    return await ctx.db.insert("applications", {
+
+    // Denormalize employerId from the job so getEmployerApplications can
+    // query directly by index instead of via an N+1 join (Issue #4).
+    const job = await ctx.db.get(args.jobId);
+    const employerId = job?.employerId ?? undefined;
+
+    const applicationId = await ctx.db.insert("applications", {
       userId: args.userId,
       jobId: args.jobId,
+      employerId,
       status: args.status,
       notes: args.notes,
       savedAt: now,
@@ -42,7 +50,19 @@ export const createApplication = mutation({
       skills: args.skills,
       experience: args.experience,
       resumeFileId: args.resumeFileId,
+      analysisStatus: args.resumeFileId ? "pending" : undefined,
     });
+
+   if (args.resumeFileId) {
+      await ctx.scheduler.runAfter(0, internal.candidateScoring.analyzeCandidateApplication, {
+        applicationId,
+        jobId: args.jobId,
+        resumeFileId: args.resumeFileId,
+      });
+    }
+
+    return applicationId;
+  
   },
 });
 
@@ -59,27 +79,18 @@ export const getUserApplications = query({
 //Get employer applications
 export const getEmployerApplications = query({
   args: { employerId: v.string() },
+
   handler: async (ctx, { employerId }) => {
-    // Get all jobs for this employer
-    const jobs = await ctx.db
-      .query("jobs")
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
+   const applications = await ctx.db
+      .query("applications")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
       .collect();
-    
-    const jobIds = jobs.map(j => j._id);
-    
-    // Get all applications for these jobs
-    const applications = await Promise.all(
-      jobIds.map(async (jobId) => {
-        const apps = await ctx.db
-          .query("applications")
-          .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
-          .collect();
-        return apps;
-      })
-    );
-    
-    return applications.flat();
+
+    return applications;
   },
 });
 
@@ -144,5 +155,48 @@ export const deleteApplication = mutation({
     // }
 
     await ctx.db.delete(applicationId);
+  },
+});
+
+export const setApplicationAnalysisStatus = internalMutation({
+  args: {
+    applicationId: v.id("applications"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, { applicationId, status, error }) => {
+    await ctx.db.patch(applicationId, {
+      analysisStatus: status,
+      analysisError: error,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const setApplicationAnalysis = internalMutation({
+  args: {
+    applicationId: v.id("applications"),
+    matchScore: v.number(),
+    summary: v.object({
+      risk: v.union(v.literal("LOW"), v.literal("MEDIUM"), v.literal("HIGH")),
+      confidence: v.number(),
+      recommendation: v.string(),
+      topStrengths: v.array(v.string()),
+      topWeaknesses: v.array(v.string()),
+    }),
+  },
+  handler: async (ctx, { applicationId, matchScore, summary }) => {
+    await ctx.db.patch(applicationId, {
+      matchScore,
+      analysisSummary: summary,
+      analysisStatus: "completed",
+      analysisError: undefined,
+      updatedAt: Date.now(),
+    });
   },
 });

@@ -1,10 +1,8 @@
 // src/app/lib/getFileFromConvexStorage.ts
-// Server-side helper: fetch file from Convex storage signed URL.
 import { fetchAction } from "convex/nextjs";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 
-// Define the possible return types for the file content
 export type FileContent =
   | { type: "text"; data: string }
   | { type: "arrayBuffer"; data: ArrayBuffer };
@@ -13,56 +11,23 @@ export async function getFileFromConvexStorage(
   storageId: Id<"_storage">
 ): Promise<FileContent> {
   try {
-    // 1) Ask Convex for a signed URL (server-side)
-    const url = await fetchAction(api.resumes.getFileUrl, { storageId });
-    console.log("[getFileFromConvexStorage] Signed URL received:", url);
-
-    if (!url) throw new Error("File not found in Convex storage (getFileUrl returned null)");
-    console.log("[getFileFromConvexStorage] Fetching file from URL:", url);
-
-    // 2) Fetch the file from the signed URL
-    const res = await fetch(url);
-    console.log("[getFileFromConvexStorage] Fetch response:", {
-      status: res.status,
-      statusText: res.statusText,
-      contentType: res.headers.get("content-type"),
-    });
-
-    if (!res.ok) {
-      const bodySnippet = await res.text().catch(() => "");
-      console.error("[getFileFromConvexStorage] Fetch failed:", {
-        status: res.status,
-        statusText: res.statusText,
-        bodySnippet: bodySnippet.slice(0, 200),
-      });
-      throw new Error(`Failed to fetch file from signed URL: ${res.status} ${res.statusText} ${bodySnippet.slice(0, 200)}`);
+    console.log("[getFileFromConvexStorage] Fetching file for:", storageId);
+    
+    // Use the API route to get the file
+    const response = await fetch(`/api/storage/${storageId}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file: ${response.status}`);
     }
-
-    // 3) Check content-type
-    const contentType = (res.headers.get("content-type") || "").toLowerCase();
-    console.log("[getFileFromConvexStorage] Content-Type:", contentType);
-
-
-    // 4) Read as text when it looks like a text file
-    if (
-      contentType.includes("text/plain") ||
-      contentType.includes("application/json") ||
-      contentType.includes("text/html") ||
-      contentType.includes("xml")
-    ) {
-      const text = await res.text();
-      const trimmed = text.trim().slice(0, 20).toLowerCase();
-            console.log("[getFileFromConvexStorage] Response snippet:", trimmed);
-
-      // Detect HTML error pages
-      if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
-        throw new Error(`Convex returned HTML instead of file content. Snippet: ${text.substring(0, 200)}`);
-      }
+    
+    const contentType = response.headers.get("content-type") || "";
+    const buffer = await response.arrayBuffer();
+    
+    if (contentType.includes("text") || contentType.includes("json") || contentType.includes("xml")) {
+      const text = new TextDecoder().decode(buffer);
       return { type: "text", data: text };
     }
-
-    // 5) Default: return binary ArrayBuffer for pdf/docx/unknown
-    const buffer = await res.arrayBuffer();
+    
     return { type: "arrayBuffer", data: buffer };
   } catch (err) {
     console.error("Error fetching file from Convex storage:", err);

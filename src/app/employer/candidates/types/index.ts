@@ -17,4 +17,5 @@ export interface Candidate {
   matchScore?: number;
   notes?: string;
   resumeFileId?: Id<"_storage">;
+  analysisStatus?: "pending" | "processing" | "completed" | "failed"
 }

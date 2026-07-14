@@ -21,6 +21,10 @@ export const getAIAnalysis = query({
     candidateId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== args.employerId) {
+      throw new Error("Unauthorized");
+    }
     let queryBuilder = ctx.db
       .query("aiAnalyses")
       .withIndex("by_employerId_type", (q) => 
@@ -42,6 +46,10 @@ export const getAIAnalysis = query({
 export const getAIAnalyses = query({
   args: { employerId: v.string() },
   handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
     return await ctx.db
       .query("aiAnalyses")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
@@ -101,6 +109,10 @@ export const saveAIAnalysis = mutation({
     anonymizedResume: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== args.employerId) {
+      throw new Error("Unauthorized");
+    }
     // Check if analysis already exists
     const existing = await ctx.db
       .query("aiAnalyses")
@@ -141,6 +153,10 @@ export const processResumeBlind = mutation({
     jobId: v.optional(v.id("jobs")),
   },
   handler: async (ctx, args) => {
+     const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== args.employerId) {
+      throw new Error("Unauthorized");
+    }
     // Simple PII removal (in production, use regex or AI)
     const removedFields = [];
     let anonymizedText = args.resumeText;
@@ -247,6 +263,10 @@ export const saveComparison = mutation({
     }),
   },
   handler: async (ctx, args) => {
+     const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== args.employerId) {
+      throw new Error("Unauthorized");
+    }
     return await ctx.db.insert("comparisons", {
       ...args,
       createdAt: Date.now(),
@@ -258,6 +278,10 @@ export const saveComparison = mutation({
 export const getRecentComparisons = query({
   args: { employerId: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, { employerId, limit = 10 }) => {
+     const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
     return await ctx.db
       .query("comparisons")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
@@ -272,6 +296,10 @@ export const getHiringFunnel = query({
     jobId: v.optional(v.id("jobs")),
   },
   handler: async (ctx, { userId, jobId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Unauthorized");
+    }
     // Get all applications for this employer
     let applications = await ctx.db
       .query("applications")
@@ -306,6 +334,10 @@ export const getHiringInsights = query({
     jobId: v.optional(v.id("jobs")) 
   },
   handler: async (ctx, { userId, jobId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== userId) {
+      throw new Error("Unauthorized");
+    }
     // Get all insights for this employer
     const insights = await ctx.db
       .query("hiringInsights")
@@ -335,6 +367,10 @@ export const generateHiringInsights = mutation({
     jobId: v.optional(v.id("jobs")),
   },
   handler: async (ctx, { employerId, jobId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+   if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
     // Fetch all applications for this employer
     let applications = await ctx.db
       .query("applications")
@@ -454,6 +490,10 @@ export const generateHiringInsights = mutation({
 export const getAIConversation = query({
   args: { employerId: v.string() },
   handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) {
+      throw new Error("Unauthorized");
+    }
     return await ctx.db
       .query("aiConversations")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
@@ -487,6 +527,10 @@ export const saveAIConversation = mutation({
     summary: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== args.employerId) {
+      throw new Error("Unauthorized");
+    }
     const existing = await ctx.db
       .query("aiConversations")
       .withIndex("by_employerId", (q) => q.eq("employerId", args.employerId))

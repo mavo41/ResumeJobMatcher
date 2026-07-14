@@ -335,6 +335,7 @@ export default function JobsPage() {
           jobId={selectedJobForApply._id as Id<"jobs">}
           jobTitle={selectedJobForApply.title}
           companyName={selectedJobForApply.company}
+          jobDescription={selectedJobForApply.description}
           onApplySuccess={() => {
             // Refresh data or show success
           }}

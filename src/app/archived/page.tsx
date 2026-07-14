@@ -1,7 +1,7 @@
 "use client";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-
+import { Id } from "../../../convex/_generated/dataModel";
 export default function ArchivedPage() {
   const resumes = useQuery(api.resumes.getArchivedResumes) ?? [];
   const deleteResume = useMutation(api.resumes.deleteResume);
@@ -14,7 +14,7 @@ export default function ArchivedPage() {
           <li key={resume._id} className="flex justify-between bg-gray-100 p-3 rounded">
             <span>{resume.companyName} - {resume.jobTitle}</span>
             <button
-              onClick={() => deleteResume({ id: resume._id })}
+              onClick={() => deleteResume({ resumeId: resume._id })}
               className="text-red-600 hover:text-red-800"
             >
               Delete Forever

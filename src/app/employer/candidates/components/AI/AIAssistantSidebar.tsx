@@ -67,6 +67,7 @@ const features: AIFeature[] = [
   },
 ];
 
+
 export default function AIAssistantSidebar({ activeFeature, onFeatureChange, onAction }: AIAssistantSidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 

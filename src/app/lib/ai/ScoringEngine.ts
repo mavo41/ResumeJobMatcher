@@ -97,9 +97,13 @@ export class ScoringEngine {
   // ============================================================
   
   private semanticThreshold = 0.60;
-  private useSemanticMatching = true;
+  private useSemanticMatching = false;
   private weights: ScoringWeights = { ...DEFAULT_SCORING_WEIGHTS };
   private recruiterPreferences?: RecruiterPreferences;
+
+  private static readonly MAX_SKILLS_PER_SIDE = 60;
+  private static readonly EARLY_EXIT_SIMILARITY = 0.92;
+
 
   // ============================================================
   // Hiring Thresholds
@@ -453,10 +457,27 @@ export class ScoringEngine {
     context: ScoringContext
   ): Promise<CategoryScore> {
     const { candidate, job } = context;
-    const candidateSkillNames = candidate.skills.map((s: Skill) => s.name);
-    const requiredSkills = job.requiredSkills.map((s: JobSkill) => s.name);
-    const preferredSkills = job.preferredSkills.map((s: JobSkill) => s.name);
+    const capSkills = (skills: string[], label: string): string[] => {
+      if (skills.length <= ScoringEngine.MAX_SKILLS_PER_SIDE) return skills;
+      console.warn(
+        `[ScoringEngine] ${label} list has ${skills.length} entries, ` +
+          `truncating to ${ScoringEngine.MAX_SKILLS_PER_SIDE} for scoring.`
+      );
+      return skills.slice(0, ScoringEngine.MAX_SKILLS_PER_SIDE);
+    };
 
+    const candidateSkillNames = capSkills(
+      candidate.skills.map((s: Skill) => s.name),
+      "Candidate skills"
+    );
+    const requiredSkills = capSkills(
+      job.requiredSkills.map((s: JobSkill) => s.name),
+      "Job required skills"
+    );
+    const preferredSkills = capSkills(
+      job.preferredSkills.map((s: JobSkill) => s.name),
+      "Job preferred skills"
+    );
     // FIX: SkillMatch uses 'normalized' property
     const normalizedMatches = this.synonyms.normalizeSkills(candidateSkillNames);
     const normalizedCandidate = normalizedMatches.map((match: SkillMatch) => match.normalized);
@@ -496,6 +517,9 @@ export class ScoringEngine {
             bestMatch = true;
             bestSimilarity = similarity;
             bestMatchSkill = candidateSkill;
+          }
+          if (bestSimilarity >= ScoringEngine.EARLY_EXIT_SIMILARITY) {
+            break;
           }
         }
 

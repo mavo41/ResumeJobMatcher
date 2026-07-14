@@ -56,26 +56,38 @@ export class VectorStore {
    * Search for similar documents
    * Returns results with similarity scores (embeddings excluded for performance)
    */
-  async search(query: string, limit: number = 10): Promise<SearchResult[]> {
-    const embedding = await this.embeddings.getEmbedding(query);
-    const results = await this.convex.query(api.vectors.search, {
-      embedding,
-      limit,
-    });
-    return results;
-  }
-
+  //async search(query: string, limit: number = 10): Promise<SearchResult[]> {
+   async search(
+    query: string,
+    limit: number = 10,
+    experienceTier?: "junior" | "mid" | "senior"
+  ): Promise<SearchResult[]> {
+     const embedding = await this.embeddings.getEmbedding(query);
+     const results = await this.convex.query(api.vectors.search, {
+       embedding,
+       limit,
+      experienceTier,
+     });
+     return results;
+   } 
+  
   /**
    * Find similar candidates
    * Returns results with similarity scores
    */
-  async findSimilar(candidateId: string, limit: number = 5): Promise<SearchResult[]> {
-    const results = await this.convex.query(api.vectors.findSimilar, {
-      candidateId,
-      limit,
-    });
-    return results;
-  }
+ // async findSimilar(candidateId: string, limit: number = 5): Promise<SearchResult[]> {
+    async findSimilar(
+    candidateId: string,
+    limit: number = 5,
+    experienceTier?: "junior" | "mid" | "senior"
+  ): Promise<SearchResult[]> {
+     const results = await this.convex.query(api.vectors.findSimilar, {
+       candidateId,
+       limit,
+      experienceTier,
+     });
+     return results;
+   }
 
   /**
    * Get embedding for text (with caching)

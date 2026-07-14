@@ -264,9 +264,9 @@ export class SkillEmbeddings {
     text: string
   ): Promise<number[]> {
     if (!SkillEmbeddings.model) {
-      throw new Error(
-        "Embedding model is not configured."
-      );
+     const err = new Error("Embedding model is not configured.");
+      (err as any).nonRetryable = true;
+      throw err;
     }
     const result =
       await SkillEmbeddings.model.embedContent(text);
@@ -331,6 +331,9 @@ export class SkillEmbeddings {
           );
           return embedding;
         } catch (error) {
+          if ((error as any)?.nonRetryable) {
+            throw error;
+          }
           retries++;
           if (retries >= MAX_RETRIES) {
             throw error;

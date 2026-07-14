@@ -68,6 +68,7 @@ const STATUS_ICONS = {
   accepted: CheckCircle,
   rejected: XCircle,
 };
+  
 
 export default function CandidatesPage() {
   const { userId } = useAuth();
@@ -104,9 +105,10 @@ export default function CandidatesPage() {
     appliedAt: app.savedAt || app._creationTime,
     jobId: app.jobId,
     jobTitle: app.jobTitle || "Unknown Position",
-    matchScore: app.matchScore || Math.floor(Math.random() * 40) + 60,
+    matchScore: typeof app.matchScore === "number" ? app.matchScore : undefined,
     notes: app.notes || "",
     resumeFileId: app.resumeFileId,
+    analysisStatus: app.analysisStatus,
   })) || [];
 
   // Filter candidates
@@ -396,7 +398,9 @@ export default function CandidatesPage() {
                       <Calendar className="h-3.5 w-3.5" />
                       <span>Applied {formatDistanceToNow(candidate.appliedAt, { addSuffix: true })}</span>
                     </div>
-                    {candidate.matchScore && (
+                    {
+                      typeof candidate.matchScore === "number" ? (
+
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700">
                           <div
@@ -405,11 +409,17 @@ export default function CandidatesPage() {
                           />
                         </div>
                         <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          {candidate.matchScore}% match
+                          {candidate.matchScore}Job Requirements Match
                         </span>
                       </div>
-                    )}
+                    
+                      ) : candidate.analysisStatus === "processing" ? (
+  <span className="text-xs text-amber-600">Analyzing…</span>
+) : (
+  <span className="text-xs text-zinc-400">Not yet analyzed</span>
+ )}
                   </div>
+                
 
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {candidate.skills.slice(0, 3).map((skill, index) => (
