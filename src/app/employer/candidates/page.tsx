@@ -409,7 +409,7 @@ export default function CandidatesPage() {
                           />
                         </div>
                         <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                          {candidate.matchScore}Job Requirements Match
+                          {candidate.matchScore}% Job Requirements Match
                         </span>
                       </div>
                     

@@ -28,6 +28,7 @@ import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_feedbackSchema from "../lib/feedbackSchema.js";
+import type * as lib_sanitizeForPrompt from "../lib/sanitizeForPrompt.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as restoreJob from "../restoreJob.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   jobs: typeof jobs;
   "lib/feedbackSchema": typeof lib_feedbackSchema;
+  "lib/sanitizeForPrompt": typeof lib_sanitizeForPrompt;
   migrations: typeof migrations;
   notifications: typeof notifications;
   restoreJob: typeof restoreJob;

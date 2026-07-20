@@ -15,7 +15,6 @@ export const createApplication = mutation({
       v.literal("offer"),
       v.literal("rejected"),
       v.literal("accepted"),
-      
     ),
     notes: v.optional(v.string()),
     candidateName: v.optional(v.string()),
@@ -28,11 +27,58 @@ export const createApplication = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-
-    // Denormalize employerId from the job so getEmployerApplications can
-    // query directly by index instead of via an N+1 join (Issue #4).
     const job = await ctx.db.get(args.jobId);
     const employerId = job?.employerId ?? undefined;
+    const isRealApply = args.status !== "shortlisted";
+
+    const existing = await ctx.db
+      .query("applications")
+      .withIndex("by_userId_jobId", (q) => q.eq("userId", args.userId).eq("jobId", args.jobId))
+      .first();
+
+    if (existing) {
+      if (existing.submitted && isRealApply) {
+        // Blocked duplicate real-apply attempt — record it, don't
+        // silently succeed and don't silently fail either.
+        const attempts = (existing.duplicateAttempts || 0) + 1;
+        await ctx.db.patch(existing._id, { duplicateAttempts: attempts, updatedAt: now });
+        throw new Error(`ALREADY_APPLIED:${attempts}`);
+      }
+
+      if (!existing.submitted && isRealApply) {
+        // Upgrade an existing bookmark into a real application — same
+        // document, so the employer sees exactly one application, not
+        // a bookmark AND a separate apply.
+        await ctx.db.patch(existing._id, {
+          status: args.status,
+          submitted: true,
+          notes: args.notes ?? existing.notes,
+          candidateName: args.candidateName ?? existing.candidateName,
+          candidateEmail: args.candidateEmail ?? existing.candidateEmail,
+          candidatePhone: args.candidatePhone ?? existing.candidatePhone,
+          candidateLocation: args.candidateLocation ?? existing.candidateLocation,
+          skills: args.skills ?? existing.skills,
+          experience: args.experience ?? existing.experience,
+          resumeFileId: args.resumeFileId ?? existing.resumeFileId,
+          employerId,
+          updatedAt: now,
+        });
+
+        if (args.resumeFileId && existing.analysisStatus !== "completed") {
+          await ctx.scheduler.runAfter(0, internal.candidateScoring.analyzeCandidateApplication, {
+            applicationId: existing._id,
+            jobId: args.jobId,
+            resumeFileId: args.resumeFileId,
+          });
+        }
+
+        return existing._id;
+      }
+
+      // Re-bookmarking something already bookmarked (not yet submitted)
+      // — no-op, just return the existing record.
+      return existing._id;
+    }
 
     const applicationId = await ctx.db.insert("applications", {
       userId: args.userId,
@@ -42,7 +88,6 @@ export const createApplication = mutation({
       notes: args.notes,
       savedAt: now,
       updatedAt: now,
-      // Include the new fields
       candidateName: args.candidateName,
       candidateEmail: args.candidateEmail,
       candidatePhone: args.candidatePhone,
@@ -50,10 +95,12 @@ export const createApplication = mutation({
       skills: args.skills,
       experience: args.experience,
       resumeFileId: args.resumeFileId,
+      submitted: isRealApply,
+      duplicateAttempts: 0,
       analysisStatus: args.resumeFileId ? "pending" : undefined,
     });
 
-   if (args.resumeFileId) {
+    if (args.resumeFileId) {
       await ctx.scheduler.runAfter(0, internal.candidateScoring.analyzeCandidateApplication, {
         applicationId,
         jobId: args.jobId,
@@ -62,7 +109,6 @@ export const createApplication = mutation({
     }
 
     return applicationId;
-  
   },
 });
 
@@ -88,6 +134,7 @@ export const getEmployerApplications = query({
    const applications = await ctx.db
       .query("applications")
       .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .filter((q) => q.eq(q.field("submitted"), true))
       .collect();
 
     return applications;
@@ -100,6 +147,7 @@ export const getJobApplications = query({
   handler: async (ctx, { jobId }) => {
     return await ctx.db.query("applications")
       .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+      .filter((q) => q.eq(q.field("submitted"), true))
       .collect();
   },
 });
@@ -108,6 +156,23 @@ export const getApplicationById = query({
   args: { applicationId: v.id("applications") },
   handler: async (ctx, { applicationId }) => {
     return await ctx.db.get(applicationId);
+  },
+});
+
+export const getUserApplicationsWithJobs = query({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const withJobs = await Promise.all(
+      applications.map(async (app) => ({ ...app, job: await ctx.db.get(app.jobId) }))
+    );
+
+    // Drop applications whose job was hard-deleted, if that ever happens
+    return withJobs.filter((a) => a.job !== null);
   },
 });
 
@@ -198,5 +263,15 @@ export const setApplicationAnalysis = internalMutation({
       analysisError: undefined,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const getApplicationForUserAndJob = query({
+  args: { userId: v.string(), jobId: v.id("jobs") },
+  handler: async (ctx, { userId, jobId }) => {
+    return await ctx.db
+      .query("applications")
+      .withIndex("by_userId_jobId", (q) => q.eq("userId", userId).eq("jobId", jobId))
+      .first();
   },
 });

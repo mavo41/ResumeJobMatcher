@@ -268,7 +268,60 @@ export const deleteJob = mutation({
   },
 });
 
+export const recordJobView = mutation({
+  args: { jobId: v.id("jobs"), viewerId: v.string() },
+  handler: async (ctx, { jobId, viewerId }) => {
+    const existing = await ctx.db
+      .query("jobViews")
+      .withIndex("by_jobId_viewerId", (q) => q.eq("jobId", jobId).eq("viewerId", viewerId))
+      .first();
 
+    if (existing) {
+      return { newView: false };
+    }
+
+    await ctx.db.insert("jobViews", { jobId, viewerId, firstViewedAt: Date.now() });
+    return { newView: true };
+  },
+});
+
+export const getJobViewCount = query({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, { jobId }) => {
+    const views = await ctx.db
+      .query("jobViews")
+      .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+      .collect();
+    return views.length;
+  },
+});
+
+// Batched version for the employer jobs list page — avoids N+1 queries
+// when displaying a "Views" column across many job rows at once.
+export const getJobViewCounts = query({
+  args: { jobIds: v.array(v.id("jobs")) },
+  handler: async (ctx, { jobIds }) => {
+    const counts = await Promise.all(
+      jobIds.map(async (jobId) => {
+        const views = await ctx.db
+          .query("jobViews")
+          .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+          .collect();
+        return [jobId, views.length] as const;
+      })
+    );
+    return Object.fromEntries(counts);
+  },
+});
+
+// export const incrementJobViews = mutation({
+//   args: { jobId: v.id("jobs") },
+//   handler: async (ctx, { jobId }) => {
+//     const job = await ctx.db.get(jobId);
+//     if (!job) return;
+//     await ctx.db.patch(jobId, { views: (job.views || 0) + 1 });
+//   },
+// });
 
 export const generateUploadUrl = mutation({
   handler: async (ctx) => {
@@ -415,6 +468,8 @@ async function fetchRemoteOKSource(ctx: any, now: number, force: boolean): Promi
               company: job.company || job.company_name || "Unknown",
               location: job.location || "Remote",
               description: job.description || "",
+              source: "remoteok",
+              externalUrl: job.url || undefined,
             });
             inserted++;
           } catch {
@@ -475,6 +530,8 @@ if (!force && last && now - last.lastFetched < SIX_HOURS) {
               company: job.company_name || "Unknown",
               location: job.candidate_required_location || "Remote",
               description: job.description || "",
+              source: "remotive",
+              externalUrl: job.url || undefined,
             });
             inserted++;
           } catch {
@@ -533,6 +590,8 @@ async function fetchOneGreenhouseCompany(
               company: company.name || company.handle,
               location: job.location?.name || "Remote",
               description: job.content || "",
+              source: "greenhouse",
+              externalUrl: job.url || undefined,
             });
             inserted++;
           } catch {
@@ -670,6 +729,8 @@ export const insertFetchedJob = internalMutation({
     salaryRange: v.optional(v.string()),
     status: v.optional(v.union(v.literal("open"), v.literal("closed"), v.literal("draft"))),
     tag: v.optional(v.union(v.literal("MATCH"), v.literal("RECOMMENDED"))),
+     source: v.optional(v.string()),
+    externalUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -685,6 +746,8 @@ export const insertFetchedJob = internalMutation({
       status: args.status ?? "open",
       tag: args.tag ?? "RECOMMENDED",
       employerId: "", // system-sourced job
+      source: args.source,
+      externalUrl: args.externalUrl,
       createdAt: now,
       updatedAt: now,
       isRemoved: false,

@@ -8,7 +8,7 @@ import { Id } from "./_generated/dataModel";
 import { extractResumeText } from "../../resume-matcher/src/app/lib/pdfExtractor";
 import { AIPipeline } from "../src/app/lib/ai/AIPipeline";
 import type { JobRequirements } from "../src/app/lib/ai/types";
-
+import { sanitizeForPrompt } from "./lib/sanitizeForPrompt";
 export const analyzeCandidateApplication = internalAction({
   args: {
     applicationId: v.id("applications"),
@@ -35,9 +35,9 @@ export const analyzeCandidateApplication = internalAction({
       }
 
       const jobRequirements: JobRequirements = {
-        jobRole: job.title || "Unspecified Role",
-        requiredSkills: (job.requirements || []).map((r: string) => ({
-          name: r,
+       jobRole: (job.title || "Unspecified Role").slice(0, 200),
+        requiredSkills: (job.requirements || []).slice(0, 60).map((r: string) => ({
+          name: String(r).slice(0, 200),
           mandatory: true,
         })),
         preferredSkills: [],

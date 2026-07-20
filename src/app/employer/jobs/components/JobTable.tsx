@@ -28,6 +28,7 @@ interface Job {
   department?: string;
   status: "open" | "closed" | "draft";
   applications: number;
+  views: number;
   postedAt: number;
   createdAt: number;
   updatedAt: number;
@@ -105,6 +106,9 @@ export default function JobTable({ jobs, onDelete, onStatusChange, onPublish }: 
               <th className="px-6 py-4 font-medium text-zinc-500 dark:text-zinc-400 text-sm uppercase tracking-wider">
                 Applicants
               </th>
+              <th className="px-6 py-4 font-medium text-zinc-500 dark:text-zinc-400 text-sm uppercase tracking-wider">
+                Views
+              </th>
               <th className="hidden lg:table-cell px-6 py-4 font-medium text-zinc-500 dark:text-zinc-400 text-sm uppercase tracking-wider">
                 Posted
               </th>
@@ -153,6 +157,12 @@ export default function JobTable({ jobs, onDelete, onStatusChange, onPublish }: 
                     <span className="font-semibold text-zinc-900 dark:text-white text-base">
                       {job.applications}
                     </span>
+                  </div>
+                </td>
+                 <td className="px-6 py-4">
+                  <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
+                    <Eye className="h-4 w-4 text-zinc-400" />
+                    <span className="text-sm">{job.views}</span>
                   </div>
                 </td>
                 <td className="hidden lg:table-cell px-6 py-4">

@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 import { extractResumeText } from "../../resume-matcher/src/app/lib/pdfExtractor";
 import { createHash } from "crypto";
 import { normalizeFeedback, fallbackFeedback, cleanLLMResponse, isValidFeedbackShape } from "./lib/feedbackSchema";
-
+import { sanitizeForPrompt } from "./lib/sanitizeForPrompt";
 //import { GoogleGenAI } from "@google/genai";
 //import pdfParse from "pdf-parse";
 //import Groq from "groq-sdk";
@@ -41,17 +41,17 @@ import { generateChatCompletion } from "../src/app/lib/ai/aiProvider";
 // substantive rather than generic, and uses structured JSON output mode
 // instead of relying on prose instructions to avoid markdown fences.
 function buildPrompt(jobTitle: string, jobDescription: string, resumeText: string): string {
+ const safeJobDescription = sanitizeForPrompt(jobDescription, "job_description");
+  const safeResumeText = sanitizeForPrompt(resumeText, "resume_text");
   return `You are an expert technical recruiter and resume reviewer with deep ATS (Applicant Tracking System) knowledge.
 
 TASK: Analyze the resume below for a candidate applying to the position "${jobTitle}".
 
 JOB DESCRIPTION:
-${jobDescription || "Not provided — evaluate against general best practices for this job title."}
+${jobDescription ? safeJobDescription : "Not provided — evaluate against general best practices for this job title."}
 
 RESUME TEXT:
-"""
-${resumeText.substring(0, 12000)}
-"""
+${safeResumeText}
 
 INSTRUCTIONS:
 1. Every tip you write MUST reference something specific and concrete from the resume text above (a phrase, section, skill, or missing element) — do not write generic advice that could apply to any resume.

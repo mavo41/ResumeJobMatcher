@@ -334,8 +334,15 @@ export default function ApplyModal({
       
     } catch (error) {
       console.error("Application error:", error);
-      setError(error instanceof Error ? error.message : "Failed to submit application");
-      toast.error("Failed to submit application. Please try again.");
+      const msg = error instanceof Error ? error.message : "Failed to submit application";
+      if (msg.startsWith("ALREADY_APPLIED:")) {
+        const count = msg.split(":")[1];
+        setError(`You've already applied to this job.`);
+        toast.error(`You've already applied to this job. (Attempt #${count} blocked)`);
+      } else {
+        setError(msg);
+        toast.error("Failed to submit application. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }

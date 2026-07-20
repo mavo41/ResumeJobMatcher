@@ -8,7 +8,7 @@ import { Id } from "../../../convex/_generated/dataModel";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { X, MapPin, Clock, Send, Eye, Bookmark } from "lucide-react";
+import { X, MapPin, Clock, Send, Eye, Bookmark, ExternalLink } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-hot-toast";
 import { Button } from "../components/ui/button";
@@ -26,6 +26,8 @@ interface Job {
   tag?: "MATCH" | "RECOMMENDED" | undefined;
   createdAt: number;
   updatedAt: number;
+  source?: string;
+  externalUrl?: string;
 }
 
 interface Application {
@@ -44,6 +46,8 @@ interface Application {
   experience?: number;
   matchScore?: number;
   resumeFileId?: Id<"_storage">;
+  submitted?: boolean;
+  job: Job | null;
 }
 
 export default function JobMatcher() {
@@ -57,12 +61,12 @@ export default function JobMatcher() {
   const router = useRouter();
 
   // Fetch jobs and applications
-  const jobs = useQuery(api.jobs.getOpenJobs, { cursor: undefined, limit: 100 }) || { page: [] };
-  const userApplications = useQuery(
-    api.applications.getUserApplications,
-    userId ? { userId } : "skip"
-  ) || [];
-
+  const jobs = useQuery(api.jobs.getOpenJobs, { cursor: undefined, limit: 1000 }) || { page: [] };
+  const applications = (useQuery(
+      api.applications.getUserApplicationsWithJobs,
+      userId ? { userId } : "skip"
+    ) || []) as Application[];
+  
   // Mutations
   const createApplication = useMutation(api.applications.createApplication);
   const updateApplicationStatus = useMutation(api.applications.updateApplicationStatus);
@@ -80,22 +84,24 @@ export default function JobMatcher() {
   };
 
   // Filtered applications
-  const filteredApplications = currentFilter === "Bookmarked"
-    ? userApplications
-    : userApplications.filter((a: Application) => a.status === statusMap[currentFilter]);
+  const filteredApplications =
+    currentFilter === "Bookmarked"
+      ? applications.filter((a) => !a.submitted)
+      : applications.filter((a) => a.status === statusMap[currentFilter]);
 
   // Category counts
   const counts = {
-    Recommended: jobs.page.length,
-    Shortlisted: userApplications.filter((a: Application) => a.status === "shortlisted").length,
-    Applied: userApplications.filter((a: Application) => a.status === "applied").length,
-    Bookmarked: userApplications.length,
-    Interviewing: userApplications.filter((a: Application) => a.status === "interviewing").length,
-    Offers: userApplications.filter((a: Application) => a.status === "offer").length,
-    Rejected: userApplications.filter((a: Application) => a.status === "rejected").length,
-    Accepted: userApplications.filter((a: Application) => a.status === "accepted").length,
-    Reviewed: userApplications.filter((a: Application) => a.status === "reviewed").length,
+    Jobsforyou: jobs.page.length,
+    Shortlisted: applications.filter((a: Application) => a.status === "shortlisted").length,
+     Bookmarked: applications.filter((a) => !a.submitted).length,
+    Applied: applications.filter((a) => a.status === "applied").length,
+    Interviewing: applications.filter((a) => a.status === "interviewing").length,
+    Offers: applications.filter((a) => a.status === "offer").length,
+    Rejected: applications.filter((a) => a.status === "rejected").length,
+    Accepted: applications.filter((a) => a.status === "accepted").length,
+    Reviewed: applications.filter((a) => a.status === "reviewed").length,
   };
+
 
   // Handlers
   const handleBookmark = async (jobId: Id<"jobs">) => {
@@ -113,13 +119,21 @@ export default function JobMatcher() {
   };
 
   const handleApplyClick = (job: Job) => {
-    if (!userId) {
-      toast.error("Please sign in to apply");
-      return;
-    }
-    setSelectedJobForApply(job);
-    setShowApplyModal(true);
-  };
+      if (!userId) {
+        toast.error("Please sign in to apply");
+        return;
+      }
+      if (job.source && job.externalUrl) {
+        window.open(job.externalUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+      setSelectedJobForApply(job);
+      setShowApplyModal(true);
+    };
+  
+    const isAlreadyApplied = (jobId: Id<"jobs">) =>
+      applications.some((a) => a.jobId === jobId && a.submitted);
+  
 
   const handleReject = async (applicationId: Id<"applications">) => {
     await updateApplicationStatus({
@@ -140,7 +154,7 @@ export default function JobMatcher() {
   };
 
   const handleUpdateNotes = async (applicationId: Id<"applications">, notes: string) => {
-    const app = userApplications.find((a: Application) => a._id === applicationId);
+    const app = applications.find((a: Application) => a._id === applicationId);
     await updateApplicationStatus({
       applicationId,
       status: app?.status || "shortlisted",
@@ -159,8 +173,8 @@ export default function JobMatcher() {
   };
 
   const handleCardClick = (category: string) => {
-    if (category === "Recommended") {
-      router.push("/jobboard");
+    if (category === "Jobsforyou") {
+      router.push("/jobMatcher");
     } else {
       setCurrentFilter(category);
     }
@@ -172,13 +186,21 @@ export default function JobMatcher() {
         {/* Main Content Area */}
         <div className="w-full lg:w-3/4">
           <h1 className="text-2xl font-bold mb-4">Job Tracker Board</h1>
+          <Link
+                        href="/jobMatcher"
+                        className="text-sm font-medium text-blue-600 hover:underline"
+                      >
+                        Browse  jobs →
+                      </Link>
 
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
             {Object.entries(counts).map(([category, count]) => (
               <div
                 key={category}
-                className="bg-white p-4 rounded-lg shadow hover:bg-blue-50 cursor-pointer transition"
+                className={`bg-white p-4 rounded-lg shadow cursor-pointer transition ${
+                  currentFilter === category ? "ring-2 ring-blue-500" : "hover:bg-blue-50"
+                }`}
                 onClick={() => handleCardClick(category)}
               >
                 <h2 className="text-lg font-semibold">{category}</h2>
@@ -187,11 +209,8 @@ export default function JobMatcher() {
             ))}
           </div>
 
-          {/* Jobs Table */}
           <div className="bg-white p-4 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">
-              {currentFilter === "Bookmarked" ? "Bookmarked Jobs" : `${currentFilter} Jobs`}
-            </h2>
+            <h2 className="text-xl font-semibold mb-4">{currentFilter} Jobs</h2>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left">
@@ -214,16 +233,13 @@ export default function JobMatcher() {
                       </td>
                     </tr>
                   ) : (
-                    filteredApplications.map((app: Application) => {
-                      const job = jobs.page.find((j: Job) => j._id === app.jobId);
+                    filteredApplications.map((app) => {
+                      const job = app.job;
                       if (!job) return null;
                       return (
                         <tr key={app._id} className="border-b">
                           <td className="p-2">
-                            <button
-                              onClick={() => handleSelectJob(job)}
-                              className="text-blue-600 hover:underline"
-                            >
+                            <button onClick={() => handleSelectJob(job)} className="text-blue-600 hover:underline">
                               {job.title}
                             </button>
                           </td>
@@ -235,11 +251,13 @@ export default function JobMatcher() {
                               onChange={(e) => handleUpdateStatus(app._id, e.target.value as Application["status"])}
                               className="border rounded p-1"
                             >
-                              {["shortlisted", "applied", "interviewing", "offer", "rejected", "accepted", "reviewed"].map(status => (
-                                <option key={status} value={status}>
-                                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                                </option>
-                              ))}
+                              {["shortlisted", "applied", "interviewing", "offer", "rejected", "accepted", "reviewed"].map(
+                                (status) => (
+                                  <option key={status} value={status}>
+                                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                                  </option>
+                                )
+                              )}
                             </select>
                           </td>
                           <td className="p-2">{format(new Date(app.savedAt), "MMM dd, yyyy")}</td>
@@ -253,15 +271,20 @@ export default function JobMatcher() {
                             />
                           </td>
                           <td className="p-2 flex space-x-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleApplyClick(job);
-                              }}
-                              className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 text-xs"
-                            >
-                              Apply
-                            </button>
+                            {isAlreadyApplied(job._id) ? (
+                              <span className="text-xs text-emerald-600 font-medium px-2 py-1">✓ Applied</span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplyClick(job);
+                                }}
+                                className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 text-xs flex items-center gap-1"
+                              >
+                                {job.source && <ExternalLink size={12} />}
+                                Apply
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -353,7 +376,7 @@ export default function JobMatcher() {
             ))}
           </div>
           <div className="mt-4 border-t pt-4">
-            <Link href="/jobs" className="block w-full text-center py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
+            <Link href="/jobMatcher" className="block w-full text-center py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">
               See All Jobs
             </Link>
           </div>
@@ -361,9 +384,9 @@ export default function JobMatcher() {
       </div>
 
       {/* Job Details Panel */}
-      {isDetailsOpen && selectedJob && (
+     {isDetailsOpen && selectedJob && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-end z-50">
-          <div className="bg-white w-full max-w-md h-full p-6 shadow-lg transform transition-transform ease-in-out duration-300 translate-x-0 overflow-y-auto">
+          <div className="bg-white w-full max-w-md h-full p-6 shadow-lg overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold">{selectedJob.title}</h2>
               <button onClick={() => setIsDetailsOpen(false)} className="text-gray-500 hover:text-gray-700">
@@ -373,9 +396,9 @@ export default function JobMatcher() {
 
             <div className="space-y-4">
               <div className="flex items-center text-sm text-gray-600">
-                <p className="text-gray-600">{selectedJob.company}</p>
+                <p>{selectedJob.company}</p>
                 <span className="mx-2">•</span>
-                <p className="text-gray-600">{selectedJob.location}</p>
+                <p>{selectedJob.location}</p>
               </div>
               <p className="text-sm text-gray-500 flex items-center">
                 <Clock size={16} className="mr-1" /> Posted: {format(new Date(selectedJob.postedAt), "MMM dd, yyyy")}
@@ -396,15 +419,21 @@ export default function JobMatcher() {
               </div>
 
               <div className="mt-6 flex space-x-4">
-                <button
-                  onClick={() => {
-                    handleApplyClick(selectedJob);
-                    setIsDetailsOpen(false);
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors flex-1"
-                >
-                  Apply Now
-                </button>
+                {isAlreadyApplied(selectedJob._id) ? (
+                  <div className="flex-1 text-center bg-emerald-50 text-emerald-700 px-4 py-2 rounded-lg font-medium">
+                    ✓ Already Applied
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      handleApplyClick(selectedJob);
+                      setIsDetailsOpen(false);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors flex-1"
+                  >
+                    {selectedJob.source ? "Apply on Original Site" : "Apply Now"}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     handleBookmark(selectedJob._id);
@@ -421,22 +450,20 @@ export default function JobMatcher() {
       )}
 
       {/* Apply Modal */}
-      {selectedJobForApply && (
-        <ApplyModal
-          isOpen={showApplyModal}
-          onClose={() => {
-            setShowApplyModal(false);
-            setSelectedJobForApply(null);
-          }}
-          jobId={selectedJobForApply._id as Id<"jobs">}
-          jobTitle={selectedJobForApply.title}
-          companyName={selectedJobForApply.company}
-          jobDescription={selectedJobForApply.description}
-          onApplySuccess={() => {
-            // Refresh data or show success
-          }}
-        />
-      )}
-    </div>
-  );
-}
+      {selectedJobForApply && !selectedJobForApply.source && (
+              <ApplyModal
+                isOpen={showApplyModal}
+                onClose={() => {
+                  setShowApplyModal(false);
+                  setSelectedJobForApply(null);
+                }}
+                jobId={selectedJobForApply._id as Id<"jobs">}
+                jobTitle={selectedJobForApply.title}
+                companyName={selectedJobForApply.company}
+                jobDescription={selectedJobForApply.description}
+                onApplySuccess={() => {}}
+              />
+            )}
+          </div>
+        );
+      }

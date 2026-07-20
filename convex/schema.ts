@@ -499,7 +499,7 @@ resumeAnalysisCache: defineTable({
     postedAt: v.number(),
     description: v.string(),
     requirements: v.optional(v.array(v.string())),
-   salaryRange: v.optional(v.string()),
+    salaryRange: v.optional(v.string()),
     status: v.union(
       v.literal("open"),
       v.literal("closed"),
@@ -512,11 +512,25 @@ resumeAnalysisCache: defineTable({
     removedAt: v.optional(v.number()),    // timestamp
     removedBy: v.optional(v.string()),    // admin userId
     removalReason: v.optional(v.string()),// moderation reason
+    source: v.optional(v.string()),
+    externalUrl: v.optional(v.string()),
+  // Incremented once per job-detail-page view (see job/[jobId]/page.tsx).
+    //views: v.optional(v.number()),
+
 
   }).index("by_status", ["status"])
   .index("by_employerId", ["employerId"])
   .index("by_status_removed", ["status", "isRemoved"])
   .index("by_employer_title_company_location", ["employerId", "title", "company", "location"]),
+
+
+  jobViews: defineTable({
+    jobId: v.id("jobs"),
+    viewerId: v.string(), // Clerk userId, or an anonymous session id
+    firstViewedAt: v.number(),
+  })
+    .index("by_jobId", ["jobId"])
+    .index("by_jobId_viewerId", ["jobId", "viewerId"]),
 
   //Applications table
   applications: defineTable({
@@ -544,6 +558,8 @@ resumeAnalysisCache: defineTable({
   skills: v.optional(v.array(v.string())),
   experience: v.optional(v.number()),
   resumeFileId: v.optional(v.id("_storage")),
+  submitted: v.optional(v.boolean()),
+  duplicateAttempts: v.optional(v.number()),
   analysisStatus: v.optional(
     v.union(
       v.literal("pending"),
@@ -567,7 +583,8 @@ resumeAnalysisCache: defineTable({
   })
     .index("by_userId", ["userId"])
     .index("by_jobId", ["jobId"])
-    .index("by_employerId", ["employerId"]),
+    .index("by_employerId", ["employerId"])
+    .index("by_userId_jobId", ["userId", "jobId"]),
 
    
    

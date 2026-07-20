@@ -18,7 +18,23 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "../../../components/ui/accordion";
-import { CheckCircle2, AlertCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { 
+  CheckCircle2, 
+  AlertCircle, 
+  XCircle, 
+  Loader2, 
+  RefreshCw,
+  FileText,
+  Sparkles,
+  Award,
+  BarChart3,
+  Zap,
+  ArrowUpRight,
+  Clock,
+  Users,
+  Target,
+  FileCheck
+} from "lucide-react";
 import AtsScoreCard from "../../components/AtsScoreCard";
 
 type FeedbackTip = {
@@ -156,10 +172,10 @@ export default function ResultsPage({
   // Handle not signed in
   if (!isLoaded) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-indigo-500 mx-auto mb-4" />
-          <p className="text-gray-600">Loading...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mx-auto mb-4" />
+          <p className="text-slate-500">Loading...</p>
         </div>
       </div>
     );
@@ -167,12 +183,15 @@ export default function ResultsPage({
 
   if (!isSignedIn) {
     return (
-      <main className="min-h-screen bg-gray-100 p-8 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md text-center">
-          <h2 className="text-2xl font-bold mb-4">Sign In Required</h2>
-          <p className="text-gray-600 mb-6">Please sign in to view your resume analysis results.</p>
+      <main className="min-h-screen bg-slate-50 p-8 flex items-center justify-center">
+        <div className="bg-white border border-slate-200 p-10 rounded-2xl shadow-lg max-w-md w-full text-center">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+            <FileText className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-3">Sign In Required</h2>
+          <p className="text-slate-500 mb-8 text-sm">Please sign in to view your resume analysis results.</p>
           <SignInButton mode="modal">
-            <button className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition">
+            <button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-6 py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300">
               Sign In
             </button>
           </SignInButton>
@@ -183,10 +202,10 @@ export default function ResultsPage({
 
   if (resumeData === undefined) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-indigo-500 mx-auto mb-4" />
-          <p className="text-gray-600">Loading resume data...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-emerald-600 mx-auto mb-4" />
+          <p className="text-slate-500">Loading resume data...</p>
         </div>
       </div>
     );
@@ -194,17 +213,22 @@ export default function ResultsPage({
 
   if (resumeData === null) {
     return (
-      <main className="min-h-screen bg-gray-100 p-8">
+      <main className="min-h-screen bg-slate-50">
         <Navbar />
-        <div className="max-w-4xl mx-auto mt-12 bg-white p-8 rounded-lg shadow text-center">
-          <h2 className="text-2xl font-bold text-gray-700 mb-4">Resume Not Found</h2>
-          <p className="text-gray-500 mb-6">The resume you're looking for doesn't exist or you don't have permission to view it.</p>
-          <button
-            onClick={() => router.push("/upload")}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition"
-          >
-            Go to Upload
-          </button>
+        <div className="max-w-2xl mx-auto px-4 pt-20">
+          <div className="bg-white border border-red-200 rounded-2xl p-12 text-center shadow-lg">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-red-50 border border-red-200 flex items-center justify-center">
+              <XCircle className="w-10 h-10 text-red-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-3">Resume Not Found</h2>
+            <p className="text-slate-500 mb-8 text-sm">The resume you're looking for doesn't exist or you don't have permission to view it.</p>
+            <button
+              onClick={() => router.push("/upload")}
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-3 rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300"
+            >
+              Upload New Resume
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -216,66 +240,76 @@ export default function ResultsPage({
   // No feedback state
   if (!hasFeedback) {
     return (
-      <main className="min-h-screen bg-gray-100 p-8">
+      <main className="min-h-screen bg-slate-50">
         <Navbar />
-        <div className="max-w-4xl mx-auto mt-12 bg-white p-8 rounded-lg shadow">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-700 mb-4">⏳ No Feedback Yet</h2>
-            <p className="text-gray-500 mb-6">
-              Your resume <strong>{resumeData.companyName || "Unknown"}</strong> - <strong>{resumeData.jobTitle || "Unknown"}</strong> hasn't been analyzed yet.
-            </p>
-            
-            {/* Debug info (remove in production) */}
-            {process.env.NODE_ENV === 'development' && debugInfo && (
-              <div className="mb-4 p-2 bg-gray-100 rounded text-left text-xs">
-                <p><strong>Debug Info:</strong></p>
-                <p>Has Feedback: {String(debugInfo.hasFeedback)}</p>
-                <p>Feedback Keys: {debugInfo.feedbackKeys?.join(', ') || 'none'}</p>
-                <p>Resume ID: {id}</p>
-                <p>Storage ID: {resumeData.fileStorageId}</p>
+        <div className="max-w-4xl mx-auto px-4 pt-20">
+          <div className="bg-white border border-amber-200 rounded-2xl p-10 shadow-lg">
+            <div className="text-center">
+              <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+                <Clock className="w-10 h-10 text-amber-500" />
               </div>
-            )}
-            
-            {isLoadingFile ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-              </div>
-            ) : fileUrl ? (
-              <div className="mt-4 mb-6 border rounded-lg p-4 bg-gray-50">
-                <p className="text-sm text-gray-600 mb-2">📄 Resume Preview</p>
-                <iframe 
-                  src={fileUrl} 
-                  className="w-full h-64 border rounded-lg" 
-                  onError={() => setFileError("Failed to load preview")}
-                />
-              </div>
-            ) : (
-              <div className="mt-4 mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-700">
-                  {fileError || "Resume preview not available"}
-                </p>
-              </div>
-            )}
+              <h2 className="text-2xl font-bold text-slate-900 mb-3">Analysis Pending</h2>
+              <p className="text-slate-500 mb-2 text-sm">
+                Your resume for <span className="text-slate-900 font-medium">{resumeData.companyName || "Unknown"}</span> — 
+                <span className="text-slate-900 font-medium ml-1">{resumeData.jobTitle || "Unknown"}</span> is ready for analysis.
+              </p>
+              <p className="text-slate-400 text-xs mb-8">Click the button below to generate your insights</p>
+              
+              {/* Debug info (remove in production) */}
+              {process.env.NODE_ENV === 'development' && debugInfo && (
+                <div className="mb-6 p-4 bg-slate-50 rounded-xl text-left text-xs text-slate-500 font-mono">
+                  <p className="text-slate-700 mb-1 font-sans"><strong>Debug Info:</strong></p>
+                  <p>Has Feedback: {String(debugInfo.hasFeedback)}</p>
+                  <p>Feedback Keys: {debugInfo.feedbackKeys?.join(', ') || 'none'}</p>
+                  <p>Resume ID: {id}</p>
+                  <p>Storage ID: {resumeData.fileStorageId}</p>
+                </div>
+              )}
+              
+              {isLoadingFile ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                </div>
+              ) : fileUrl ? (
+                <div className="mt-4 mb-8 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                  <p className="text-sm text-slate-600 mb-3 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Resume Preview
+                  </p>
+                  <iframe 
+                    src={fileUrl} 
+                    className="w-full h-64 rounded-lg" 
+                    onError={() => setFileError("Failed to load preview")}
+                  />
+                </div>
+              ) : (
+                <div className="mt-4 mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                  <p className="text-sm text-amber-700">
+                    {fileError || "Resume preview not available"}
+                  </p>
+                </div>
+              )}
 
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button
-                onClick={handleReAnalyze}
-                disabled={isAnalyzing}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isAnalyzing ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-5 h-5" />
-                )}
-                {isAnalyzing ? "Analyzing..." : "Analyze Resume"}
-              </button>
-              <button
-                onClick={() => router.push("/upload")}
-                className="border border-gray-300 hover:bg-gray-50 text-gray-700 px-6 py-3 rounded-lg transition"
-              >
-                Upload New Resume
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={handleReAnalyze}
+                  disabled={isAnalyzing}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-3.5 rounded-xl font-medium hover:shadow-lg hover:shadow-emerald-500/25 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-5 h-5" />
+                  )}
+                  {isAnalyzing ? "Analyzing..." : "Analyze Resume"}
+                </button>
+                <button
+                  onClick={() => router.push("/upload")}
+                  className="border border-slate-300 hover:bg-slate-50 text-slate-700 px-8 py-3.5 rounded-xl font-medium transition-all duration-300"
+                >
+                  Upload New Resume
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -287,112 +321,288 @@ export default function ResultsPage({
   const normalized = normalizeFeedback(resumeData.feedback);
   const atsScore = normalized.ATS?.score ?? 0;
 
+  // Get category entries for rendering
+  const categoryEntries = Object.entries(normalized).filter(
+    ([key, value]) => key !== "overallScore" && value && typeof value !== 'number'
+  ) as [string, FeedbackCategory][];
+
   return (
-    <main className="bg-gray-100 min-h-screen p-8">
+    <main className="min-h-screen bg-slate-50">
       <Navbar />
       
-      <div className="max-w-5xl mx-auto mt-8 space-y-12">
-        <header className="text-center">
-          <h1 className="text-4xl font-bold">Resume Analysis Complete!</h1>
-          <p className="text-lg mt-2">
-            Feedback for <strong>{resumeData.companyName}</strong> —{" "}
-            <strong>{resumeData.jobTitle}</strong>
-          </p>
-          {isLoadingFile ? (
-            <Loader2 className="w-4 h-4 animate-spin inline ml-2" />
-          ) : fileUrl ? (
-            <p className="text-sm text-gray-500 mt-1">
-              <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">
-                View Resume
-              </a>
-            </p>
-          ) : (
-            <p className="text-sm text-gray-400 mt-1">No resume preview available</p>
-          )}
-          <button
-            onClick={handleReAnalyze}
-            disabled={isAnalyzing}
-            className="mt-2 text-sm text-indigo-600 hover:text-indigo-800 transition flex items-center gap-1 mx-auto"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Re-analyze Resume
-          </button>
-        </header>
-
-        {/* Overall Score Gauge */}
-        <div className="flex justify-center">
-          <ScoreGauge value={atsScore} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
+        {/* Header with metrics bar */}
+        <div className="mb-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 text-xs font-medium">Analysis Complete</span>
+                </div>
+                <div className="px-3 py-1 rounded-full bg-slate-100 border border-slate-200 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-slate-600 text-xs">{resumeData.companyName || "Unknown"}</span>
+                </div>
+              </div>
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+                {resumeData.jobTitle || "Resume Analysis"}
+              </h1>
+              <p className="text-slate-500 text-sm mt-1">
+                Comprehensive AI-powered feedback for your application
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleReAnalyze}
+                disabled={isAnalyzing}
+                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                {isAnalyzing ? 'Analyzing...' : 'Re-analyze'}
+              </button>
+              {fileUrl && (
+                <a 
+                  href={fileUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2 border border-emerald-200"
+                >
+                  <FileText className="w-4 h-4" />
+                  View Resume
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-          <div className="sticky top-20 h-[600px]">
-            {isLoadingFile ? (
-              <div className="flex items-center justify-center h-full bg-gray-200 rounded-lg">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                <span className="ml-2 text-gray-600">Loading resume...</span>
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                <Award className="w-4 h-4 text-emerald-600" />
               </div>
-            ) : fileUrl ? (
-              <iframe 
-                src={fileUrl} 
-                className="w-full h-full border rounded-lg"
-                onError={() => setFileError("Failed to load preview")}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full bg-gray-200 rounded-lg text-gray-500">
-                {fileError || "No resume preview available"}
+              <div>
+                <p className="text-xs text-slate-500">Overall Score</p>
+                <p className="text-xl font-bold text-slate-900">{atsScore}%</p>
               </div>
-            )}
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-50 border border-blue-200">
+                <Target className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Categories</p>
+                <p className="text-xl font-bold text-slate-900">{categoryEntries.length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                <Zap className="w-4 h-4 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Improvements</p>
+                <p className="text-xl font-bold text-slate-900">
+                  {categoryEntries.reduce((acc, [, val]) => 
+                    acc + val.tips.filter(t => t.type === "improve" || t.type === "warning").length, 0
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                <FileCheck className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Strengths</p>
+                <p className="text-xl font-bold text-slate-900">
+                  {categoryEntries.reduce((acc, [, val]) => 
+                    acc + val.tips.filter(t => t.type === "good").length, 0
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content - Split Panel Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Resume Preview - Left Panel */}
+          <div className="lg:col-span-5">
+            <div className="sticky top-24">
+              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-lg">
+                <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                    </div>
+                    <span className="text-xs text-slate-500 ml-2">Resume Preview</span>
+                  </div>
+                  <span className="text-xs text-slate-400">PDF</span>
+                </div>
+                <div className="h-[600px] bg-slate-50">
+                  {isLoadingFile ? (
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mb-3" />
+                      <span className="text-slate-500 text-sm">Loading resume...</span>
+                    </div>
+                  ) : fileUrl ? (
+                    <iframe 
+                      src={fileUrl} 
+                      className="w-full h-full"
+                      onError={() => setFileError("Failed to load preview")}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                      <FileText className="w-12 h-12 mb-3 text-slate-300" />
+                      <p className="text-sm">{fileError || "No resume preview available"}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-6">
-            <AtsScoreCard score={atsScore} />
+          {/* Analysis Panel - Right Panel */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* ATS Score Card */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-lg">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-slate-500 mb-1">ATS Compatibility</h3>
+                  <p className="text-2xl font-bold text-slate-900">{atsScore}%</p>
+                  <p className="text-xs text-slate-400 mt-1">Based on keyword matching and formatting</p>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <span className="text-emerald-700 text-xs font-medium">
+                    {atsScore >= 80 ? 'Excellent' : atsScore >= 60 ? 'Good' : 'Needs Improvement'}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-4 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${atsScore}%` }}
+                />
+              </div>
+            </div>
 
-            <section className="space-y-6">
-              <h2 className="text-2xl font-semibold">Detailed AI Feedback</h2>
+            {/* Detailed Feedback */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-lg">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-sm font-medium text-slate-500">AI Feedback Analysis</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Detailed breakdown by category</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                    <span className="text-xs text-slate-500">Strength</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                    <span className="text-xs text-slate-500">Improve</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                    <span className="text-xs text-slate-500">Warning</span>
+                  </div>
+                </div>
+              </div>
 
-              <Accordion type="single" collapsible>
-                {Object.entries(normalized).map(([category, value]) => {
-                  if (category === "overallScore") return null;
-                  if (!value || typeof value === "number") return null;
-                  
-                  const categoryValue = value as FeedbackCategory;
+              <Accordion type="single" collapsible className="space-y-3">
+                {categoryEntries.map(([category, categoryValue]) => {
+                  const score = categoryValue.score;
+                  const scoreColor = score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-rose-600';
                   
                   return (
-                    <AccordionItem key={category} value={category}>
-                      <AccordionTrigger>
-                        <span className="capitalize">{category}</span>
-                        <ScoreBadge score={categoryValue.score} />
+                    <AccordionItem key={category} value={category} className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50 hover:bg-slate-50 transition-all duration-200">
+                      <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-slate-900 capitalize">{category}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-sm font-semibold ${scoreColor}`}>{score}%</span>
+                            <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                  score >= 80 ? 'bg-emerald-500' : 
+                                  score >= 60 ? 'bg-amber-500' : 'bg-rose-500'
+                                }`}
+                                style={{ width: `${score}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <ul className="space-y-2">
+                        <div className="px-4 pb-4 space-y-2">
                           {categoryValue.tips && categoryValue.tips.length > 0 ? (
-                            categoryValue.tips.map((entry: FeedbackTip, idx: number) => (
-                              <li key={idx} className="flex items-start gap-2">
-                                {entry.type === "good" && (
-                                  <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                                )}
-                                {entry.type === "improve" && (
-                                  <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
-                                )}
-                                {entry.type === "warning" && (
-                                  <XCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
-                                )}
-                                <span>{entry.tip}</span>
-                                {entry.explanation && (
-                                  <span className="text-gray-600"> — {entry.explanation}</span>
-                                )}
-                              </li>
-                            ))
+                            categoryValue.tips.map((entry: FeedbackTip, idx: number) => {
+                              let icon;
+                              let bgColor;
+                              let borderColor;
+                              let textColor;
+                              
+                              if (entry.type === "good") {
+                                icon = <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />;
+                                bgColor = "bg-emerald-50";
+                                borderColor = "border-emerald-200";
+                                textColor = "text-slate-700";
+                              } else if (entry.type === "improve") {
+                                icon = <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />;
+                                bgColor = "bg-amber-50";
+                                borderColor = "border-amber-200";
+                                textColor = "text-slate-700";
+                              } else {
+                                icon = <XCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />;
+                                bgColor = "bg-rose-50";
+                                borderColor = "border-rose-200";
+                                textColor = "text-slate-700";
+                              }
+                              
+                              return (
+                                <div 
+                                  key={idx} 
+                                  className={`flex items-start gap-3 p-3 rounded-lg ${bgColor} border ${borderColor}`}
+                                >
+                                  {icon}
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-sm ${textColor} leading-relaxed`}>
+                                      {entry.tip}
+                                    </p>
+                                    {entry.explanation && (
+                                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                        {entry.explanation}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
                           ) : (
-                            <li className="text-gray-500">No specific feedback for this category.</li>
+                            <div className="text-sm text-slate-500 p-3 text-center">
+                              No specific feedback for this category.
+                            </div>
                           )}
-                        </ul>
+                        </div>
                       </AccordionContent>
                     </AccordionItem>
                   );
                 })}
               </Accordion>
-            </section>
+            </div>
           </div>
         </div>
       </div>

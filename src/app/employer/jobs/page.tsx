@@ -49,6 +49,12 @@ export default function JobsPage() {
     userId ? { employerId: userId } : "skip"
   );
 
+   const jobIds = jobs?.map((j: any) => j._id) ?? [];
+  const viewCounts = useQuery(
+    api.jobs.getJobViewCounts,
+    jobIds.length > 0 ? { jobIds } : "skip"
+  );
+
   // Mutations
   const deleteJob = useMutation(api.jobs.deleteJob);
   const updateJobStatus = useMutation(api.jobs.updateJob);
@@ -212,7 +218,7 @@ export default function JobsPage() {
       {paginatedJobs && paginatedJobs.length > 0 ? (
         <>
           <JobTable
-            jobs={paginatedJobs}
+            jobs={paginatedJobs.map((j: any) => ({ ...j, views: viewCounts?.[j._id] ?? 0 }))}
             onDelete={handleDelete}
             onStatusChange={handleStatusChange}
           />

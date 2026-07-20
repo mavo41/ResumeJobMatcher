@@ -27,7 +27,10 @@ interface Job {
   status: string;
   tag?: string;
   logoUrl?: Id<"_storage">;
-}
+  source?: string;
+  externalUrl?: string;
+  views?: number;
+  }
 
 interface Application {
   _id: Id<"applications">;
@@ -37,6 +40,7 @@ interface Application {
   notes?: string;
   savedAt: number;
   updatedAt: number;
+  submitted?: boolean
 }
 
 export default function JobsPage() {
@@ -51,7 +55,7 @@ export default function JobsPage() {
   const jobsPerPage = 8;
 
   // Fetch jobs and applications
-  const jobs = useQuery(api.jobs.getOpenJobs, { cursor: undefined, limit: 100 }) || { page: [] };
+  const jobs = useQuery(api.jobs.getOpenJobs, { cursor: undefined, limit: 1000 }) || { page: [] };
   const createApplication = useMutation(api.applications.createApplication);
   const userApplications = useQuery(
     api.applications.getUserApplications,
@@ -96,6 +100,9 @@ export default function JobsPage() {
     setSelectedJobForApply(job);
     setShowApplyModal(true);
   };
+
+  const isAlreadyApplied = (jobId: Id<"jobs">) =>
+    userApplications.some((a: Application) => a.jobId === jobId && (a as any).submitted);
 
   const handleBookmark = async (jobId: Id<"jobs">) => {
     if (!userId) {
@@ -167,7 +174,7 @@ export default function JobsPage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-1 sm:px-5 lg:px-8 space-y-8">
-        <h2 className="text-2xl font-bold mb-6">Job Matches ({filteredJobs.length})</h2>
+        <h2 className="text-2xl font-bold mb-6">Sourced Jobs ({filteredJobs.length})</h2>
         <div className="flex flex-col lg:flex-row gap-8 p-4">
           {/* Job Listings */}
           <div className={`${selectedJob ? 'lg:w-2/5' : 'w-full'} transition-all duration-300 overflow-y-auto max-h-[calc(100vh-20rem)]`}>
@@ -304,13 +311,19 @@ export default function JobsPage() {
               </div>
 
               <div className="mt-6 flex gap-4">
-                <button
-                  onClick={() => handleApplyClick(selectedJob)}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center flex-1"
-                >
-                  <Send className="w-5 h-5 mr-2" />
-                  Apply Now
-                </button>
+                {isAlreadyApplied(selectedJob._id) ? (
+                  <div className="flex-1 text-center bg-emerald-50 text-emerald-700 px-6 py-3 rounded-lg font-semibold">
+                    ✓ Already Applied
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleApplyClick(selectedJob)}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center flex-1"
+                  >
+                    <Send className="w-5 h-5 mr-2" />
+                    {selectedJob.source ? "Apply on Original Site" : "Apply Now"}
+                  </button>
+                )}
                 <button
                   onClick={() => handleBookmark(selectedJob._id)}
                   className="border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors flex items-center flex-1"

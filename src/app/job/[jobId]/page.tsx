@@ -1,8 +1,8 @@
 // app/job/[jobId]/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useRef } from "react";import { useParams, useRouter } from "next/navigation";
+import { getAnonymousId } from "../../lib/anonymousId";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
@@ -20,6 +20,7 @@ import {
   Bookmark,
   Share2,
   X,
+  Eye,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "react-hot-toast";
@@ -40,6 +41,16 @@ export default function JobDetailPage() {
     jobId: jobId as Id<"jobs">,
   });
 
+  //tracking job views
+ const recordJobView = useMutation(api.jobs.recordJobView);
+   const hasTrackedView = useRef(false);
+ 
+   useEffect(() => {
+     if (!jobId || hasTrackedView.current) return;
+     hasTrackedView.current = true;
+    const viewerId = userId || getAnonymousId();
+     recordJobView({ jobId: jobId as Id<"jobs">, viewerId }).catch(() => {});
+   }, [jobId, userId]);
   // Fetch user's applications to check if already applied
   const userApplications = useQuery(
     api.applications.getUserApplications,
@@ -70,6 +81,11 @@ export default function JobDetailPage() {
       return;
     }
 
+    if (job?.source && job?.externalUrl) {
+     window.open(job.externalUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
     setIsApplying(true);
     try {
       await createApplication({
@@ -87,6 +103,11 @@ export default function JobDetailPage() {
       setIsApplying(false);
     }
   };
+  const jobApplications = useQuery(
+    api.applications.getJobApplications,
+    jobId ? { jobId: jobId as Id<"jobs"> } : "skip"
+  );
+
 
   const handleBookmark = async () => {
     if (!userId) {
@@ -209,7 +230,46 @@ export default function JobDetailPage() {
                   {job.tag}
                 </span>
               )}
+               <div className="bg-white dark:bg-zinc-100 rounded-xl border border-zinc-50 dark:border-zinc-800 p-4">
+           <div className="flex items-center gap-3">
+             <div className="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-950/50">
+               <Eye className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+             </div>
+             <div>
+               {jobApplications === undefined ? (
+                <p className="text-sm text-zinc-400">Loading applicant activity...</p>
+              ) : jobApplications.length === 0 ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Be the first to apply
+               </p>
+              ) : applicationStatus === "applied" || applicationStatus === "accepted" ? (
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                  <span className="font-semibold text-zinc-900 dark:text-white">You</span>
+                  {jobApplications.length > 1 && (
+                    <>
+                      {" "}
+                      + <span className="font-semibold text-zinc-900 dark:text-white">
+                        {jobApplications.length - 1}
+                      </span>{" "}
+                      other{jobApplications.length - 1 === 1 ? "" : "s"}
+                    </>
+                  )}{" "}
+                  {jobApplications.length > 1 ? "have" : "has"} applied
+               </p>
+              ) : (
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                  <span className="font-semibold text-zinc-900 dark:text-white">
+                    {jobApplications.length}
+                  </span>{" "}
+                  {jobApplications.length === 1 ? "person has" : "people have"} applied
+                </p>
+              )}
+             </div>
+           </div>
+         </div>
+
             </div>
+           
             <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white">
               {job.title}
             </h1>
@@ -253,7 +313,7 @@ export default function JobDetailPage() {
                   <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-current" : ""}`} />
                   {isBookmarked ? "Bookmarked" : "Bookmark"}
                 </Button>
-                <Button
+                {/* <Button
                   onClick={handleApply}
                   disabled={isApplying || applicationStatus === "applied" || applicationStatus === "shortlisted"}
                   className="gap-2 bg-indigo-600 hover:bg-indigo-700"
@@ -266,7 +326,7 @@ export default function JobDetailPage() {
                   {applicationStatus === "applied" || applicationStatus === "shortlisted"
                     ? "Applied"
                     : "Apply Now"}
-                </Button>
+                </Button> */}
               </>
             )}
             {job.status !== "open" && (

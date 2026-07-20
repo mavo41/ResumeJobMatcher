@@ -46,6 +46,7 @@ export default function EmployerJobDetailPage() {
   const deleteJob = useMutation(api.jobs.deleteJob);
   const updateJobStatus = useMutation(api.jobs.updateJob);
 
+ const viewCount = useQuery(api.jobs.getJobViewCount, { jobId: jobId as Id<"jobs"> });
   // Get applications for this job
   const applications = useQuery(
     api.applications.getJobApplications,
@@ -274,7 +275,7 @@ export default function EmployerJobDetailPage() {
             </div>
             <div>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Views</p>
-              <p className="text-2xl font-bold text-zinc-900 dark:text-white">0</p>
+              <p className="text-2xl font-bold text-zinc-900 dark:text-white">{viewCount ?? 0}</p>
             </div>
           </div>
         </div>
