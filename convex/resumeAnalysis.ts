@@ -4,7 +4,7 @@
 
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { extractResumeText } from "../../resume-matcher/src/app/lib/pdfExtractor";
 import { createHash } from "crypto";
 import { normalizeFeedback, fallbackFeedback, cleanLLMResponse, isValidFeedbackShape } from "./lib/feedbackSchema";
@@ -13,7 +13,7 @@ import { sanitizeForPrompt } from "./lib/sanitizeForPrompt";
 //import pdfParse from "pdf-parse";
 //import Groq from "groq-sdk";
 import { generateChatCompletion } from "../src/app/lib/ai/aiProvider";
-
+import { AIPipeline } from "../src/app/lib/ai/AIPipeline";
 
 // Ordered by preference. If the first model is unavailable/quota-limited,
 // the next is tried automatically. Update this list as Google
@@ -132,6 +132,7 @@ export const analyzeResume = internalAction({
     fileStorageId: v.id("_storage"),
     jobTitle: v.string(),
     jobDescription: v.string(),
+    jobId: v.optional(v.id("jobs")),
   },
   handler: async (ctx, args) => {
     try {
@@ -139,6 +140,12 @@ export const analyzeResume = internalAction({
         resumeId: args.resumeId,
         status: "processing",
       });
+
+      let requiredSkills: { name: string; mandatory: boolean }[] = [];
+    if (args.jobId) {
+      const job = await ctx.runQuery(api.jobs.getJobById, { jobId: args.jobId });
+      requiredSkills = (job?.requirements || []).map((r: string) => ({ name: r, mandatory: true }));
+    }
 
       // 1. Fetch file from Convex storage
       const url = await ctx.storage.getUrl(args.fileStorageId);
@@ -223,6 +230,30 @@ export const analyzeResume = internalAction({
                 feedback: cached.feedback,
               });
               return;
+            }
+
+            let jobMatchScore: number | null = null;
+            let jobMatchBreakdown: any = null;
+            
+            if (args.jobTitle) {
+              try {
+                const pipeline = new AIPipeline();
+                const jobRequirements = {
+                  jobRole: args.jobTitle,
+                  requiredSkills: [], // resumeAnalysis.ts currently has no structured requirements list from free-text jobDescription; see note below
+                  preferredSkills: [],
+                  mandatorySkills: [],
+                  certifications: [],
+                  educationLevel: "bachelors" as const,
+                  educationField: "Not specified",
+                  minExperience: 0,
+                };
+                const result = await pipeline.processResume(resumeText, jobRequirements, args.resumeId);
+                jobMatchScore = result.score.overall;
+                jobMatchBreakdown = result.score.breakdown;
+              } catch (err) {
+                console.warn("[resumeAnalysis] Job match scoring failed:", err);
+              }
             }
 
       // 3. Call Gemini with model fallback chain

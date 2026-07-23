@@ -30,7 +30,6 @@ import {
   ChevronDown,
   Building2,
   Plus,
-  Search,
   Bell,
   UserCircle,
   Crown,
@@ -89,6 +88,7 @@ const Navbar = () => {
     { href: "/jobMatcher", label: "Job Matcher", icon: LampDesk },
     { href: "/jobboard", label: "Job Board", icon: ClipboardList },
     { href: "/results", label: "Feedback", icon: ThumbsUp },
+    { href: "/messages", label: "Messages", icon: MessageSquare },
     { href: "/secure-test", label: "Secure Test", icon: ShieldHalf },
   ];
 
@@ -209,22 +209,10 @@ const Navbar = () => {
           {/* Right Section */}
           <div className="flex items-center gap-3">
             {/* Search - Desktop */}
-            <div className="hidden md:flex items-center gap-2 bg-zinc-100 dark:bg-zinc-900 rounded-lg px-3 py-1.5 border border-transparent focus-within:border-indigo-400 transition-all">
-              <Search size={16} className="text-zinc-400 dark:text-zinc-500" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="bg-transparent text-sm outline-none placeholder:text-zinc-400 dark:text-white w-32 lg:w-48"
-              />
-              <kbd className="hidden lg:inline-block text-[10px] font-mono text-zinc-400 bg-white dark:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-700">
-                ⌘K
-              </kbd>
-            </div>
+            
 
-            {/* Notification Bell - Employer Only */}
-            {isEmployer && (
+            {/* Notification Bell  */}
                 <NotificationBell />
-            )}
 
             {/* Role Badge */}
             {isEmployer && (

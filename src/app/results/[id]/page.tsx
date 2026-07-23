@@ -320,6 +320,8 @@ export default function ResultsPage({
   // Normalize feedback
   const normalized = normalizeFeedback(resumeData.feedback);
   const atsScore = normalized.ATS?.score ?? 0;
+  const resumeQualityScore = normalized.overallScore ?? atsScore;
+  const jobMatchScore = resumeData.jobMatchScore;
 
   // Get category entries for rendering
   const categoryEntries = Object.entries(normalized).filter(
@@ -432,6 +434,32 @@ export default function ResultsPage({
             </div>
           </div>
         </div>
+
+        <div className="flex justify-center gap-16 flex-wrap">
+          <div className="text-center">
+            <ScoreGauge value={resumeQualityScore} />
+            <p className="mt-2 font-semibold text-zinc-700">Resume Quality</p>
+            <p className="text-xs text-zinc-500">How well-written and ATS-parseable this resume is</p>
+          </div>
+          {typeof jobMatchScore === "number" ? (
+            <div className="text-center">
+              <ScoreGauge value={jobMatchScore} />
+              <p className="mt-2 font-semibold text-zinc-700">Job Match</p>
+              <p className="text-xs text-zinc-500">How well this resume fits this specific job's requirements</p>
+            </div>
+          ) : (
+            <div className="text-center flex flex-col items-center justify-center max-w-[128px]">
+              <p className="text-sm text-zinc-400">Job Match not available — this resume wasn't analyzed against a specific job posting.</p>
+            </div>
+          )}
+        </div>
+        {typeof jobMatchScore === "number" && Math.abs(resumeQualityScore - jobMatchScore) > 25 && (
+          <div className="max-w-2xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+            Your resume is well-written (Quality: {resumeQualityScore}%), but it doesn't closely match this
+            specific role's stated requirements (Match: {jobMatchScore}%) — that gap explains why you may not
+            be shortlisted for <em>this</em> posting, even though your resume itself is strong.
+          </div>
+        )}
 
         {/* Main Content - Split Panel Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -603,6 +631,11 @@ export default function ResultsPage({
                 })}
               </Accordion>
             </div>
+
+            
+
+
+
           </div>
         </div>
       </div>

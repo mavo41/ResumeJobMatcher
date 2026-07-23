@@ -375,7 +375,7 @@ export default function JobDetailPage() {
             size="sm"
             onClick={() => {
               navigator.clipboard.writeText(window.location.href);
-              toast.success("Link copied to clipboard!");
+              toast.success("Link copied to clipboard!", { duration: 3000 });
             }}
             className="gap-2"
           >

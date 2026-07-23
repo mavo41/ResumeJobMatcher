@@ -301,35 +301,35 @@ export class EducationMatcher {
       };
     }
 
-    try {
-      const similarity =
-        await this.embeddings.calculateSimilarity(
-          normalizedCandidate,
-          normalizedRequired
-        );
+    // try {
+    //   const similarity =
+    //     await this.embeddings.calculateSimilarity(
+    //       normalizedCandidate,
+    //       normalizedRequired
+    //     );
 
-      if (
-        similarity >= this.semanticThreshold
-      ) {
-        return {
-          score: Math.round(similarity * 100),
-          matched: true,
-          confidence: Math.round(similarity * 100),
-          reasoning:
-            `Semantic AI determined ${candidateField} is closely related to ${requiredField} (${Math.round(similarity * 100)}%)`,
-          matchedLevel: candidateDegree,
-          matchedField: normalizedCandidate,
-          semanticSimilarity: similarity,
-        };
-      }
-    }
+    //   if (
+    //     similarity >= this.semanticThreshold
+    //   ) {
+    //     return {
+    //       score: Math.round(similarity * 100),
+    //       matched: true,
+    //       confidence: Math.round(similarity * 100),
+    //       reasoning:
+    //         `Semantic AI determined ${candidateField} is closely related to ${requiredField} (${Math.round(similarity * 100)}%)`,
+    //       matchedLevel: candidateDegree,
+    //       matchedField: normalizedCandidate,
+    //       semanticSimilarity: similarity,
+    //     };
+    //   }
+    // }
 
-    catch (error) {
-      console.warn(
-        "Education semantic matching failed",
-        error
-      );
-    }
+    // catch (error) {
+    //   console.warn(
+    //     "Education semantic matching failed",
+    //     error
+    //   );
+    // }
 
     return {
       score: 0,

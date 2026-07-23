@@ -29,12 +29,13 @@ export class AIPipeline {
   private biasMitigator = new BiasMitigator();
   private confidenceEngine = new ConfidenceEngine();
   private qualityScorer = new ResumeQualityScore();
-  private feedbackLearner = new FeedbackLearning();
+  private feedbackLearner = new FeedbackLearning(process.env.NEXT_PUBLIC_CONVEX_URL);
   
   async processResume(
     resumeText: string, 
     job: JobRequirements,
-    candidateId: string
+    candidateId: string,
+    authToken?: string
   ): Promise<{
     score: CandidateScore;
     confidence: ConfidenceReport;
@@ -70,14 +71,16 @@ export class AIPipeline {
 
     // Step 7: Store for feedback learning
     const simpleBreakdown = FeedbackLearning.convertBreakdown(score.breakdown);
-    this.feedbackLearner.recordOutcome({
+    //this.feedbackLearner.recordOutcome({
+    void this.feedbackLearner.recordOutcome({
       candidateId: candidateId,
       score: score.overall,
       breakdown: simpleBreakdown,
       interviewed: false,
       hired: false,
       rejected: false,
-    });
+       }, authToken);
+
 
     return report;
   }

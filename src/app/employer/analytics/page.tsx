@@ -38,38 +38,6 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 
-const metricData = [
-  { name: "Views", value: 12456, change: 12.5, icon: Eye },
-  { name: "Applications", value: 284, change: 18.3, icon: Users },
-  { name: "Interviews", value: 48, change: -2.1, icon: Calendar },
-  { name: "Hires", value: 12, change: 8.7, icon: CheckCircle },
-];
-
-const monthlyData = [
-  { month: "Jan", views: 1200, applications: 45, interviews: 8, hires: 2 },
-  { month: "Feb", views: 1500, applications: 52, interviews: 10, hires: 3 },
-  { month: "Mar", views: 1800, applications: 48, interviews: 12, hires: 4 },
-  { month: "Apr", views: 2100, applications: 67, interviews: 15, hires: 5 },
-  { month: "May", views: 2400, applications: 72, interviews: 18, hires: 6 },
-  { month: "Jun", views: 2800, applications: 84, interviews: 22, hires: 8 },
-];
-
-const jobPerformance = [
-  { name: "Frontend Engineer", applicants: 87, views: 234, hires: 4 },
-  { name: "Backend Developer", applicants: 64, views: 189, hires: 3 },
-  { name: "Product Designer", applicants: 45, views: 156, hires: 2 },
-  { name: "DevOps Engineer", applicants: 38, views: 123, hires: 1 },
-  { name: "Data Scientist", applicants: 29, views: 98, hires: 2 },
-];
-
-const statusDistribution = [
-  { name: "Applied", value: 45, color: "#6366f1" },
-  { name: "Reviewed", value: 28, color: "#8b5cf6" },
-  { name: "Interviewing", value: 15, color: "#f59e0b" },
-  { name: "Offer", value: 8, color: "#10b981" },
-  { name: "Hired", value: 4, color: "#059669" },
-  { name: "Rejected", value: 20, color: "#ef4444" },
-];
 
 const COLORS = ["#6366f1", "#8b5cf6", "#f59e0b", "#10b981", "#059669", "#ef4444"];
 
@@ -83,7 +51,13 @@ export default function AnalyticsPage() {
     userId ? { employerId: userId } : "skip"
   );
 
-  if (jobs === undefined || applications === undefined) {
+  const jobIds = jobs?.map((j: any) => j._id) ?? [];
+  const viewCounts = useQuery(
+    api.jobs.getJobViewCounts,
+    jobIds.length > 0 ? { jobIds } : "skip"
+  );
+
+    if (jobs === undefined || applications === undefined) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -107,6 +81,65 @@ export default function AnalyticsPage() {
       </div>
     );
   }
+
+   const totalViews = viewCounts ? Object.values(viewCounts).reduce((a: number, b: any) => a + b, 0) : 0;
+  const totalApplications = applications.length;
+  const interviewingCount = applications.filter((a: any) => a.status === "interviewing").length;
+  const hiredCount = applications.filter((a: any) => a.status === "accepted").length;
+
+  const metricData = [
+    { name: "Views", value: totalViews, icon: Eye },
+    { name: "Applications", value: totalApplications, icon: Users },
+    { name: "Interviews", value: interviewingCount, icon: Calendar },
+    { name: "Hires", value: hiredCount, icon: CheckCircle },
+  ];
+
+  // Monthly breakdown derived from real application timestamps
+  const monthlyMap = new Map<string, { applications: number; hires: number }>();
+  applications.forEach((app: any) => {
+    const d = new Date(app.savedAt);
+    const key = d.toLocaleString("en-US", { month: "short" });
+    if (!monthlyMap.has(key)) monthlyMap.set(key, { applications: 0, hires: 0 });
+    const entry = monthlyMap.get(key)!;
+    entry.applications++;
+    if (app.status === "accepted") entry.hires++;
+  });
+  const monthlyData = Array.from(monthlyMap.entries()).map(([month, v]) => ({ month, ...v }));
+
+  // Per-job performance derived from real applications + view counts
+  const jobPerformance = (jobs || []).map((job: any) => {
+     const jobApps = applications.filter((a: any) => a.jobId === job._id);
+    const hiredApps = jobApps.filter((a: any) => a.hiredAt);
+    const avgDays = hiredApps.length > 0
+    ? Math.round(hiredApps.reduce((sum: number, a: any) => sum + (a.hiredAt - a.savedAt) / 86400000, 0) / hiredApps.length)
+      : null;
+    return {
+      name: job.title,
+      applicants: jobApps.length,
+      views: viewCounts?.[job._id] ?? 0,
+      hires: jobApps.filter((a: any) => a.status === "accepted").length,
+      avgDays,
+    };
+  });
+
+  const STATUS_LABELS: Record<string, string> = {
+    applied: "Applied", reviewed: "Reviewed", interviewing: "Interviewing",
+    offer: "Offer", accepted: "Hired", rejected: "Rejected",
+  };
+  const STATUS_COLOR_MAP: Record<string, string> = {
+    applied: "#6366f1", reviewed: "#8b5cf6", interviewing: "#f59e0b",
+    offer: "#10b981", accepted: "#059669", rejected: "#ef4444",
+  };
+  const statusCounts: Record<string, number> = {};
+  applications.forEach((a: any) => {
+    statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
+  });
+  const statusDistribution = Object.entries(statusCounts).map(([status, value]) => ({
+    name: STATUS_LABELS[status] || status,
+    value,
+    color: STATUS_COLOR_MAP[status] || "#94a3b8",
+  }));
+
 
   return (
     <div className="space-y-6">
@@ -159,19 +192,9 @@ export default function AnalyticsPage() {
                 </div>
               </div>
               <div className="mt-4 flex items-center gap-1.5">
-                {metric.change > 0 ? (
-                  <TrendingUp className="h-4 w-4 text-emerald-500" />
-                ) : (
-                  <TrendingDown className="h-4 w-4 text-rose-500" />
-                )}
-                <span
-                  className={`text-sm font-medium ${
-                    metric.change > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                  }`}
-                >
-                  {metric.change > 0 ? "+" : ""}{metric.change}%
+               <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                 {jobs?.length || 0} active job{jobs?.length === 1 ? "" : "s"}
                 </span>
-                <span className="text-sm text-zinc-500 dark:text-zinc-400">vs last month</span>
               </div>
             </div>
           );
@@ -308,7 +331,7 @@ export default function AnalyticsPage() {
                       {job.hires}
                     </td>
                     <td className="px-6 py-3.5 text-right text-zinc-600 dark:text-zinc-400">
-                      {Math.floor(Math.random() * 20) + 10} days
+                      {job.avgDays !== null ? `${job.avgDays} days` : "N/A"}
                     </td>
                   </tr>
                 );

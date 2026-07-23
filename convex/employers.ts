@@ -41,6 +41,12 @@ export const createOrUpdateEmployerProfile = mutation({
     userId: v.string(),
     companyName: v.string(),
     website: v.optional(v.string()),
+    industry: v.optional(v.string()),
+    size: v.optional(v.string()),
+    description: v.optional(v.string()),
+    location: v.optional(v.string()),
+    phone: v.optional(v.string()),
+
     logoFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
@@ -50,11 +56,7 @@ export const createOrUpdateEmployerProfile = mutation({
 
     if (existing[0]) {
       // Update
-      await ctx.db.patch(existing[0]._id, {
-        companyName: args.companyName,
-        website: args.website,
-        logoFileId: args.logoFileId,
-      });
+     await ctx.db.patch(existing[0]._id, args);
       return { ...existing[0], ...args };
     } else {
       // Create

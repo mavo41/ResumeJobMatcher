@@ -1,9 +1,9 @@
 // convex/ai.ts
+
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-
-// Get AI analysis for a specific type
+import { BiasMitigator } from "../src/app/lib/ai/BiasMitigator";// Get AI analysis for a specific type
 export const getAIAnalysis = query({
   args: {
     employerId: v.string(),
@@ -157,74 +157,102 @@ export const processResumeBlind = mutation({
     if (!identity || identity.subject !== args.employerId) {
       throw new Error("Unauthorized");
     }
-    // Simple PII removal (in production, use regex or AI)
-    const removedFields = [];
-    let anonymizedText = args.resumeText;
 
-    // Remove names (simple pattern)
-    const nameMatch = anonymizedText.match(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/);
-    if (nameMatch) {
-      removedFields.push({
-        type: "name" as const,
-        originalValue: nameMatch[0],
-        replacement: "[NAME]",
-      });
-      anonymizedText = anonymizedText.replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, "[NAME]");
-    }
+  //   const removedFields = [];
+  //   let anonymizedText = args.resumeText;
 
-    // Remove emails
-    const emailMatch = anonymizedText.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
-    if (emailMatch) {
-      removedFields.push({
-        type: "email" as const,
-        originalValue: emailMatch[0],
-        replacement: "[EMAIL]",
-      });
-      anonymizedText = anonymizedText.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL]");
-    }
+  //   const firstLine = anonymizedText.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+  //   const candidateNames = new Set<string>();
+  //   if (firstLine) {
+  //     const headerMatch = firstLine.match(/^([A-Z][A-Za-z'-]+(?:\s+[A-Za-z'-]+){1,3})$/);
+  //     if (headerMatch && headerMatch[1].length < 50) candidateNames.add(headerMatch[1].trim());
+  //   }
+  //   const linkedinMatch = anonymizedText.match(/linkedin[:\s]*@?([A-Z][A-Za-z'-]+(?:\s+[A-Za-z'-]+){1,3})/i);
+  //  if (linkedinMatch) candidateNames.add(linkedinMatch[1].trim());
 
-    // Remove phone numbers
-    const phoneMatch = anonymizedText.match(/\b\d{10,11}\b/);
-    if (phoneMatch) {
-      removedFields.push({
-        type: "phone" as const,
-        originalValue: phoneMatch[0],
-        replacement: "[PHONE]",
-      });
-      anonymizedText = anonymizedText.replace(/\b\d{10,11}\b/g, "[PHONE]");
-    }
+  //   let nameCount = 0;
+  //   for (const fullName of candidateNames) {
+  //     const parts = fullName.split(/\s+/).filter((p) => p.length > 1);
+  //     const variants = [fullName, ...parts].sort((a, b) => b.length - a.length);
+  //     for (const variant of variants) {
+  //      const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  //       const pattern = new RegExp(`\\b${escaped}\\b`, "g");
+  //       const matches = anonymizedText.match(pattern);
+  //       if (matches) {
+  //         nameCount += matches.length;
+  //         anonymizedText = anonymizedText.replace(pattern, "[NAME]");
+  //       }
+  //     }
+  //   }
+  //   if (nameCount > 0) {
+  //     removedFields.push({
+  //       type: "name" as const,
+  //       originalValue: Array.from(candidateNames).join(", "),
+  //       replacement: "[NAME]",
+  //     });
+  //   }
 
-    // Remove gender indicators
-    const genderMatch = anonymizedText.match(/\b(?:Male|Female|Non-binary|M|F)\b/gi);
-    if (genderMatch) {
-      removedFields.push({
-        type: "gender" as const,
-        originalValue: genderMatch[0],
-        replacement: "[GENDER]",
-      });
-      anonymizedText = anonymizedText.replace(/\b(?:Male|Female|Non-binary|M|F)\b/gi, "[GENDER]");
-    }
 
-    // Calculate bias score (simplified)
-    const biasScore = Math.min(removedFields.length * 5, 100);
-    const biasIssues = removedFields.map(f => ({
-      type: `Potential ${f.type} bias`,
-      severity: "MEDIUM" as const,
-      suggestion: `Remove ${f.type} information from resumes`,
-    }));
+  //   // Remove emails
+  //   const emailMatch = anonymizedText.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  //   if (emailMatch) {
+  //     removedFields.push({
+  //       type: "email" as const,
+  //       originalValue: emailMatch[0],
+  //       replacement: "[EMAIL]",
+  //     });
+  //     anonymizedText = anonymizedText.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL]");
+  //   }
+
+  //   // Remove phone numbers
+  //   const phoneMatch = anonymizedText.match(/\b\d{10,11}\b/);
+  //   if (phoneMatch) {
+  //     removedFields.push({
+  //       type: "phone" as const,
+  //       originalValue: phoneMatch[0],
+  //       replacement: "[PHONE]",
+  //     });
+  //     anonymizedText = anonymizedText.replace(/\b\d{10,11}\b/g, "[PHONE]");
+  //   }
+
+  //   // Remove gender indicators
+  //   const genderMatch = anonymizedText.match(/\b(?:Male|Female|Non-binary|M|F)\b/gi);
+  //   if (genderMatch) {
+  //     removedFields.push({
+  //       type: "gender" as const,
+  //       originalValue: genderMatch[0],
+  //       replacement: "[GENDER]",
+  //     });
+  //     anonymizedText = anonymizedText.replace(/\b(?:Male|Female|Non-binary|M|F)\b/gi, "[GENDER]");
+  //   }
+
+  //   // Calculate bias score (simplified)
+  //   const biasScore = Math.min(removedFields.length * 5, 100);
+  //   const biasIssues = removedFields.map(f => ({
+  //     type: `Potential ${f.type} bias`,
+  //     severity: "MEDIUM" as const,
+  //     suggestion: `Remove ${f.type} information from resumes`,
+  //   }));
+  const mitigator = new BiasMitigator();
+    const { anonymized: anonymizedText, removedFields, biasScore, biasIssues } = mitigator.anonymizeDetailed(args.resumeText);
+
+
+    function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
 
     // Save to blindResumes table
     const blindResumeId = await ctx.db.insert("blindResumes", {
       candidateId: args.candidateId,
       employerId: args.employerId,
       jobId: args.jobId,
-      originalHash: Buffer.from(args.resumeText.substring(0, 100)).toString('base64'),
+      originalHash: simpleHash(args.resumeText.substring(0, 100)),
       anonymizedText,
-      removedFields: removedFields.map(f => ({
-        type: f.type,
-        originalValue: f.originalValue,
-        replacement: f.replacement,
-      })),
+      removedFields,
       biasScore,
       biasIssues,
       processedAt: Date.now(),

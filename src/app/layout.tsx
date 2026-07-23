@@ -5,6 +5,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import { Toaster } from "react-hot-toast";
 
 // Local Geist fonts
 const geistSans = localFont({
@@ -43,6 +44,7 @@ export default function RootLayout({
 
           <main className="pt-24 flex-grow">
           {children}
+<Toaster position="top-center" toastOptions={{ className: "z-[9999]" }} />
         </main>
 
           <Footer />

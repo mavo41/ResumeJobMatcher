@@ -1,5 +1,6 @@
 // convex/applications.ts
-import { mutation, internalMutation, query } from "./_generated/server";
+
+import { mutation, internalMutation, query, action, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -63,6 +64,19 @@ export const createApplication = mutation({
           employerId,
           updatedAt: now,
         });
+
+
+        if (isRealApply && employerId) {
+  await ctx.db.insert("notifications", {
+    userId: employerId,
+    type: "new_application",
+    title: "New Application Received",
+    message: `${args.candidateName || "A candidate"} applied to your job posting.`,
+    link: `/employer/candidates`,
+    read: false,
+    createdAt: now,
+  });
+}
 
         if (args.resumeFileId && existing.analysisStatus !== "completed") {
           await ctx.scheduler.runAfter(0, internal.candidateScoring.analyzeCandidateApplication, {
@@ -194,11 +208,14 @@ export const updateApplicationStatus = mutation({
   handler: async (ctx, { applicationId, status, notes }) => {
     const application = await ctx.db.get(applicationId);
     if (!application) throw new Error("Application not found");
-    await ctx.db.patch(applicationId, {
-      status,
-      notes,
-      updatedAt: Date.now(),
-    });
+    const now = Date.now();
+    const patch: Record<string, any> = { status, notes, updatedAt: now };
+
+    if (status === "accepted" && !application.hiredAt) {
+      patch.hiredAt = now;
+    }
+    await ctx.db.patch(applicationId, patch);
+      
   },
 });
 
@@ -244,27 +261,37 @@ export const setApplicationAnalysisStatus = internalMutation({
 });
 
 export const setApplicationAnalysis = internalMutation({
-  args: {
-    applicationId: v.id("applications"),
-    matchScore: v.number(),
-    summary: v.object({
-      risk: v.union(v.literal("LOW"), v.literal("MEDIUM"), v.literal("HIGH")),
-      confidence: v.number(),
-      recommendation: v.string(),
-      topStrengths: v.array(v.string()),
-      topWeaknesses: v.array(v.string()),
-    }),
-  },
-  handler: async (ctx, { applicationId, matchScore, summary }) => {
-    await ctx.db.patch(applicationId, {
-      matchScore,
-      analysisSummary: summary,
-      analysisStatus: "completed",
-      analysisError: undefined,
-      updatedAt: Date.now(),
-    });
-  },
-});
+   args: {
+     applicationId: v.id("applications"),
+     matchScore: v.number(),
+     summary: v.object({
+       risk: v.union(v.literal("LOW"), v.literal("MEDIUM"), v.literal("HIGH")),
+       confidence: v.number(),
+       recommendation: v.string(),
+       topStrengths: v.array(v.string()),
+       topWeaknesses: v.array(v.string()),
+     }),
+    extractedSkills: v.optional(v.array(v.string())),
+    extractedExperienceYears: v.optional(v.number()),
+    extractedLocation: v.optional(v.string()),
+   },
+  handler: async (ctx, { applicationId, matchScore, summary, extractedSkills, extractedExperienceYears, extractedLocation }) => {
+    const existing = await ctx.db.get(applicationId);
+     await ctx.db.patch(applicationId, {
+       matchScore,
+       analysisSummary: summary,
+       analysisStatus: "completed",
+       analysisError: undefined,
+       skills: existing?.skills && existing.skills.length > 0 ? existing.skills : extractedSkills,
+       experience:
+        typeof existing?.experience === "number" && existing.experience > 0
+          ? existing.experience
+          : extractedExperienceYears,
+       candidateLocation: existing?.candidateLocation || extractedLocation,
+       updatedAt: Date.now(),
+     });
+   },
+ });
 
 export const getApplicationForUserAndJob = query({
   args: { userId: v.string(), jobId: v.id("jobs") },
@@ -274,4 +301,29 @@ export const getApplicationForUserAndJob = query({
       .withIndex("by_userId_jobId", (q) => q.eq("userId", userId).eq("jobId", jobId))
       .first();
   },
+});
+
+export const rerunAnalysis = mutation({
+  args: { applicationId: v.id("applications") },
+  handler: async (ctx, { applicationId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const application = await ctx.db.get(applicationId);
+    if (!application) throw new Error("Application not found");
+    if (application.employerId !== identity.subject) throw new Error("Forbidden");
+    if (!application.resumeFileId) throw new Error("No resume file on this application");
+
+    await ctx.db.patch(applicationId, { analysisStatus: "pending", updatedAt: Date.now() });
+    await ctx.scheduler.runAfter(0, internal.candidateScoring.analyzeCandidateApplication, {
+      applicationId,
+      jobId: application.jobId,
+      resumeFileId: application.resumeFileId,
+    });
+  },
+});
+
+export const getApplicationInternal = internalQuery({
+  args: { applicationId: v.id("applications") },
+  handler: async (ctx, { applicationId }) => ctx.db.get(applicationId),
 });

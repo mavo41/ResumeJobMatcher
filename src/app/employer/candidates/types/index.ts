@@ -18,4 +18,11 @@ export interface Candidate {
   notes?: string;
   resumeFileId?: Id<"_storage">;
   analysisStatus?: "pending" | "processing" | "completed" | "failed"
+  analysisSummary?: {
+  risk: "LOW" | "MEDIUM" | "HIGH";
+  confidence: number;
+  recommendation: string;
+  topStrengths: string[];
+  topWeaknesses: string[];
+};
 }

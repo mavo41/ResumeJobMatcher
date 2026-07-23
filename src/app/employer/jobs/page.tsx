@@ -20,6 +20,7 @@ import JobTable from "./components/JobTable";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { exportToCsv } from "../../lib/exportCsv";
 
 interface Job {
   _id: Id<"jobs">;
@@ -179,10 +180,26 @@ export default function JobsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+         <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              exportToCsv(
+                `jobs-${new Date().toISOString().slice(0, 10)}.csv`,
+                (filteredJobs || []).map((j: any) => ({
+                 Title: j.title,
+                  Company: j.company,
+                  Location: j.location,
+                  Status: j.status,
+                  Applicants: j.applications,
+                  Posted: new Date(j.postedAt).toLocaleDateString(),
+                }))
+              )
+            }
+          >
+             <Download className="h-4 w-4 mr-2" />
+             Export
+           </Button>
           <Link href="/post-job">
             <Button className="flex items-center gap-2">
               <Plus className="h-4 w-4" />

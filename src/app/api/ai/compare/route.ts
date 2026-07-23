@@ -6,7 +6,7 @@ import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 import { AIPipeline } from "../../../lib/ai/AIPipeline";
 import { JobRequirements } from "../../../lib/ai/types";
-
+import { fetchAction } from "convex/nextjs";
 // ============================================================
 // Helper Functions
 // ============================================================
@@ -200,7 +200,19 @@ export async function POST(request: Request) {
     const results = await Promise.all(
       validCandidateIds.map(async (id: string) => {
         const application = applicationsMap.get(id);
-        const resumeText = application?.notes || "No resume text available";
+
+        let resumeText = "No resume text available";
+               if (application?.resumeFileId) {
+                  try {
+                    resumeText = await fetchAction(
+                      api.applicationResume.getResumeTextForApplication,
+                      { applicationId: id as Id<"applications"> },
+                      { token }
+                    );
+                  } catch (e) {
+                    console.warn(`Could not extract resume text for candidate ${id}:`, e);
+                  }
+                }
 
         const defaultJob: JobRequirements = jobRequirements || {
           jobRole: "Software Engineer",

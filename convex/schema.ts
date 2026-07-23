@@ -27,6 +27,7 @@ export default defineSchema({
       location: v.optional(v.string()),
       logoFileId: v.optional(v.id("_storage")), // storage for logo
       verified: v.boolean(), // Verification status
+      phone: v.optional(v.string()),
     }).index("by_userId", ["userId"]),
 
   settings: defineTable({
@@ -469,6 +470,8 @@ embeddingsCache: defineTable({
       )
     ),
     analysisError: v.optional(v.string()),
+    jobMatchScore: v.optional(v.number()),
+    jobMatchBreakdown: v.optional(v.any()),
 
 
   createdAt: v.number(),
@@ -560,6 +563,7 @@ resumeAnalysisCache: defineTable({
   resumeFileId: v.optional(v.id("_storage")),
   submitted: v.optional(v.boolean()),
   duplicateAttempts: v.optional(v.number()),
+  hiredAt: v.optional(v.number()),
   analysisStatus: v.optional(
     v.union(
       v.literal("pending"),
@@ -618,6 +622,44 @@ resumeAnalysisCache: defineTable({
     warnings: v.array(v.string()),
     timestamp: v.number(),
   }),
+
+  conversations: defineTable({
+  employerId: v.string(),
+  candidateUserId: v.string(),
+  applicationId: v.id("applications"),
+  jobId: v.id("jobs"),
+  lastMessageAt: v.number(),
+  lastMessagePreview: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index("by_employerId", ["employerId"])
+  .index("by_candidateUserId", ["candidateUserId"])
+  .index("by_applicationId", ["applicationId"]),
+
+chatMessages: defineTable({
+  conversationId: v.id("conversations"),
+  senderId: v.string(),
+  senderRole: v.union(v.literal("employer"), v.literal("candidate"), v.literal("system")),
+  content: v.string(),
+  read: v.boolean(),
+  createdAt: v.number(),
+}).index("by_conversationId", ["conversationId"]),
+
+interviews: defineTable({
+  applicationId: v.id("applications"),
+  conversationId: v.id("conversations"),
+  employerId: v.string(),
+  candidateUserId: v.string(),
+  jobId: v.id("jobs"),
+  scheduledAt: v.number(),
+  mode: v.union(v.literal("ONSITE"), v.literal("ONLINE")),
+  locationOrLink: v.string(),
+  status: v.union(v.literal("scheduled"), v.literal("completed"), v.literal("cancelled")),
+  createdAt: v.number(),
+})
+  .index("by_applicationId", ["applicationId"])
+  .index("by_employerId", ["employerId"])
+  .index("by_candidateUserId", ["candidateUserId"]),
 
 });
 

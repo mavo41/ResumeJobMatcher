@@ -166,7 +166,11 @@ export const createOrUpdateEmployerProfile = mutation({
     userId: v.string(),
     companyName: v.string(),
     website: v.optional(v.string()),
-    logoFileId: v.optional(v.id("_storage")),
+    industry: v.optional(v.string()),
+    size: v.optional(v.string()),
+    description: v.optional(v.string()),
+    location: v.optional(v.string()),
+    phone: v.optional(v.string()),    logoFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -184,8 +188,10 @@ export const createOrUpdateEmployerProfile = mutation({
       .query("employers")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .unique();
+
     if (existing) {
-      await ctx.db.patch(existing._id, { ...args, verified: false });
+    const { userId, ...updates } = args;
+      await ctx.db.patch(existing._id, updates);
     } else {
       await ctx.db.insert("employers", { ...args, verified: false });
     }
@@ -296,6 +302,7 @@ export const updateUser = mutation({
     Image: v.optional(v.string()),
     role: v.optional(v.union(v.literal("user"), v.literal("employer"), v.literal("admin"))),
     companyName: v.optional(v.string()),
+    phone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

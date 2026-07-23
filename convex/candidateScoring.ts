@@ -106,7 +106,36 @@ export const analyzeCandidateApplication = internalAction({
           topStrengths: (result.score.explainability?.strongestFactors || []).slice(0, 3),
           topWeaknesses: (result.score.explainability?.weakestFactors || []).slice(0, 3),
         },
+        extractedSkills: result.parsedResume.skills.map((s) => s.name).slice(0, 30),
+        extractedExperienceYears: result.parsedResume.experience.years,
+        extractedLocation: result.parsedResume.contact.location,
       });
+
+      if (job.employerId) {
+        const simpleBreakdown = {
+          skills: result.score.breakdown.skills.score,
+          experience: result.score.breakdown.experience.score,
+          education: result.score.breakdown.education.score,
+          projects: result.score.breakdown.projects.score,
+          certifications: result.score.breakdown.certifications.score,
+          achievements: result.score.breakdown.achievements.score,
+        };
+        await ctx.runMutation(internal.feedback.recordOutcomeInternal, {
+          employerId: job.employerId,
+          candidateId: args.applicationId,
+          score: result.score.overall,
+          breakdown: simpleBreakdown,
+          interviewed: false,
+          hired: false,
+          rejected: false,
+        });
+        await ctx.runMutation(internal.feedback.maybeUpdateWeightsForEmployer, {
+          employerId: job.employerId,
+        });
+      }
+
+
+
     } catch (err: any) {
       console.error("[candidateScoring.analyzeCandidateApplication] failed:", err);
       await ctx.runMutation(internal.applications.setApplicationAnalysisStatus, {

@@ -18,6 +18,13 @@ export interface Candidate {
   resumeFileId?: any;
   anonymizedResume?: string;
   analysisStatus?: "pending" | "processing" | "completed" | "failed"
+  analysisSummary?: {
+  risk: "LOW" | "MEDIUM" | "HIGH";
+  confidence: number;
+  recommendation: string;
+  topStrengths: string[];
+  topWeaknesses: string[];
+};
 }
 
 export interface ExplainableScore {

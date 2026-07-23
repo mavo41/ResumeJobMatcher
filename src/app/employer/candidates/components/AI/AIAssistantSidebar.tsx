@@ -26,6 +26,7 @@ interface AIAssistantSidebarProps {
   activeFeature: string;
   onFeatureChange: (feature: string) => void;
   onAction: (action: string, data?: any) => void;
+  stats?: { totalCandidates: number; analyzed: number; interviewReady: number };
 }
 
 const features: AIFeature[] = [
@@ -68,7 +69,7 @@ const features: AIFeature[] = [
 ];
 
 
-export default function AIAssistantSidebar({ activeFeature, onFeatureChange, onAction }: AIAssistantSidebarProps) {
+export default function AIAssistantSidebar({ activeFeature, onFeatureChange, onAction, stats }: AIAssistantSidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   return (
@@ -132,15 +133,15 @@ export default function AIAssistantSidebar({ activeFeature, onFeatureChange, onA
             <div className="mt-2 space-y-1">
               <div className="flex justify-between text-sm">
                 <span className="text-zinc-600 dark:text-zinc-400">Candidates</span>
-                <span className="font-medium">24</span>
+                <span className="font-medium">{stats?.totalCandidates ?? 0}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-zinc-600 dark:text-zinc-400">Analyzed</span>
-                <span className="font-medium">18</span>
+                <span className="font-medium">{stats?.analyzed ?? 0}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-zinc-600 dark:text-zinc-400">Interview Ready</span>
-                <span className="font-medium text-emerald-600">7</span>
+                <span className="font-medium text-emerald-600">{stats?.interviewReady ?? 0}</span>
               </div>
             </div>
           </div>

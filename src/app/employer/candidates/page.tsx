@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Candidate } from "./components/AI/types";
 import {
@@ -36,7 +36,7 @@ import BlindResumeProcessor from "./components/AI/BlindResumeProcessor";
 import ExplainableScore from "./components/AI/ExplainableScore";
 import HiringFunnelAnalytics from "./components/AI/HiringFunnelAnalytics";
 import CandidateDetailModal from "./components/CandidateDetailModal";
-
+import { exportToCsv } from "../../lib/exportCsv";
 // Types & Constants
 const STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
@@ -98,17 +98,18 @@ export default function CandidatesPage() {
     name: app.candidateName || "Anonymous Candidate",
     email: app.candidateEmail || "",
     phone: app.candidatePhone || "",
-    location: app.candidateLocation || "Unknown",
+    location: app.candidateLocation || "Not provided",
     skills: app.skills || [],
     experience: app.experience || 0,
     status: app.status,
     appliedAt: app.savedAt || app._creationTime,
     jobId: app.jobId,
-    jobTitle: app.jobTitle || "Unknown Position",
+    jobTitle: jobs?.find((j: any) => j._id === app.jobId)?.title || "Unknown Position",
     matchScore: typeof app.matchScore === "number" ? app.matchScore : undefined,
     notes: app.notes || "",
     resumeFileId: app.resumeFileId,
     analysisStatus: app.analysisStatus,
+    analysisSummary: app.analysisSummary,
   })) || [];
 
   // Filter candidates
@@ -120,7 +121,7 @@ export default function CandidatesPage() {
     const matchesJob = jobFilter === "all" || candidate.jobId === jobFilter;
     return matchesSearch && matchesStatus && matchesJob;
   });
-
+  const getResumeText = useAction(api.applicationResume.getResumeTextForApplication);
   // AI Action Handler
   const handleAIAction = async (action: string, data?: any) => {
     setIsAILoading(true);
@@ -158,12 +159,14 @@ export default function CandidatesPage() {
   const handleAIAnalysis = async (candidate: Candidate, type: string) => {
     setIsAILoading(true);
     try {
+            const resumeText = await getResumeText({ applicationId: candidate._id as any });
+
       // Call the real API
       const response = await fetch("/api/ai/employeranalyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          resumeText: candidate.notes || "Resume text not available",
+          resumeText,
           jobRequirements: {
             jobRole: candidate.jobTitle || "Software Engineer",
             requiredSkills: candidate.skills.map(s => ({ name: s, mandatory: true })),
@@ -194,8 +197,8 @@ export default function CandidatesPage() {
       toast.success("AI analysis complete!");
     } catch (error) {
       console.error("AI Analysis Error:", error);
-      toast.error("Failed to analyze candidate");
-    } finally {
+      const msg = error instanceof Error ? error.message : "Failed to analyze candidate";
+      toast.error(msg);    } finally {
       setIsAILoading(false);
     }
   };
@@ -246,6 +249,12 @@ export default function CandidatesPage() {
         activeFeature={aiFeature}
         onFeatureChange={setAiFeature}
         onAction={handleAIAction}
+        stats={{
+          totalCandidates: candidates.length,
+          analyzed: candidates.filter((c) => c.analysisStatus === "completed").length,
+          interviewReady: candidates.filter((c) => (c.matchScore || 0) >= 75).length,
+        }}
+
       />
 
       {/* Main Content */}
@@ -311,10 +320,29 @@ export default function CandidatesPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+            <Button
+                        variant="outline"
+                        onClick={() =>
+                          exportToCsv(
+                            `candidates-${new Date().toISOString().slice(0, 10)}.csv`,
+                            filteredCandidates.map((c) => ({
+                              Name: c.name,
+                              Email: c.email,
+                              Phone: c.phone || "",
+                              Location: c.location || "",
+                              "Job Title": c.jobTitle,
+                              Status: c.status,
+                              "Match Score": c.matchScore ?? "",
+                              Skills: c.skills.join("; "),
+                             Experience: c.experience,
+                              "Applied At": new Date(c.appliedAt).toLocaleDateString(),
+                            }))
+                          )
+                        }
+                      >
+                         <Download className="h-4 w-4 mr-2" />
+                         Export
+                       </Button>
           </div>
         </div>
 
@@ -341,18 +369,32 @@ export default function CandidatesPage() {
               </option>
             ))}
           </select>
-          <select
-            value={jobFilter}
-            onChange={(e) => setJobFilter(e.target.value)}
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-          >
-            <option value="all">All Jobs</option>
-            {jobs?.map((job: any) => (
-              <option key={job._id} value={job._id}>
-                {job.title}
-              </option>
-            ))}
-          </select>
+
+          <div className="flex gap-2 overflow-x-auto pb-2 border-b border-zinc-200 dark:border-zinc-800">
+  <button
+    onClick={() => setJobFilter("all")}
+    className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition ${
+      jobFilter === "all" ? "border-indigo-600 text-indigo-600" : "border-transparent text-zinc-500 hover:text-zinc-700"
+    }`}
+  >
+    All Jobs ({candidates.length})
+  </button>
+  {jobs?.map((job: any) => {
+    const count = candidates.filter((c) => c.jobId === job._id).length;
+    return (
+      <button
+        key={job._id}
+        onClick={() => setJobFilter(job._id)}
+        className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition ${
+          jobFilter === job._id ? "border-indigo-600 text-indigo-600" : "border-transparent text-zinc-500 hover:text-zinc-700"
+        }`}
+      >
+        {job.title} ({count})
+      </button>
+    );
+  })}
+</div>  
+          
         </div>
 
         {/* Candidate Grid */}
@@ -502,8 +544,6 @@ export default function CandidatesPage() {
           isOpen={isDetailsOpen}
           onClose={() => setIsDetailsOpen(false)}
           candidate={selectedCandidate}
-          onAIAnalysis={handleAIAnalysis}
-          isAILoading={isAILoading}
         />
       )}
     </div>

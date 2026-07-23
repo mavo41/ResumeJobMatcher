@@ -238,28 +238,31 @@ export class ExperienceMatcher {
     }
 
     // Semantic similarity
-    try {
+    // try {
 
-      const similarity =
-        await this.embeddings.calculateSimilarity(
-          candidateRole,
-          requiredRole
-        );
+    //   const similarity =
+    //     await this.embeddings.calculateSimilarity(
+    //       candidateRole,
+    //       requiredRole
+    //     );
 
-      if (similarity >= this.semanticThreshold) {
+    //   if (similarity >= this.semanticThreshold) {
 
-        return {
-          match: true,
-          score: similarity,
-          reasoning:
-            `Semantic similarity ${(similarity * 100).toFixed(0)}%`
-        };
+    //     return {
+    //       match: true,
+    //       score: similarity,
+    //       reasoning:
+    //         `Semantic similarity ${(similarity * 100).toFixed(0)}%`
+    //     };
 
-      }
+    //   }
 
-    } catch (err) {
-      console.warn("Embedding comparison failed.", err);
-    }
+    // } catch (err) {
+    //   console.warn("Embedding comparison failed.", err);
+    // }
+
+        // Skipping straight to "no match" here instead of attempting and
+
 
     return {
       match: false,

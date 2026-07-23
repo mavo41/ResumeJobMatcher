@@ -406,6 +406,29 @@ export const recordFetchRun = mutation({
   },
 });
 
+export const getAverageTimeToHire = query({
+  args: { employerId: v.string() },
+  handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) throw new Error("Unauthorized");
+
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .filter((q) => q.neq(q.field("hiredAt"), undefined))
+      .collect();
+
+    if (applications.length === 0) return null;
+
+    const totalDays = applications.reduce((sum, app) => {
+      const days = ((app.hiredAt as number) - app.savedAt) / (1000 * 60 * 60 * 24);
+      return sum + days;
+    }, 0);
+
+    return Math.round(totalDays / applications.length);
+  },
+});
+
 // Action: Cron-triggered fetch
 const SOURCE_TIMEOUT_MS = 15_000;
 const GREENHOUSE_COMPANY_TIMEOUT_MS = 10_000;

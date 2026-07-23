@@ -309,10 +309,14 @@ export const completeAnalysis = internalMutation({
   args: {
     resumeId: v.id("resumes"),
     feedback: v.any(),
+    jobMatchScore: v.optional(v.number()),
+    jobMatchBreakdown: v.optional(v.any()),
   },
-  handler: async (ctx, { resumeId, feedback }) => {
+  handler: async (ctx, { resumeId, feedback, jobMatchScore, jobMatchBreakdown }) => {
     await ctx.db.patch(resumeId, {
       feedback,
+      jobMatchScore,
+      jobMatchBreakdown,
       analysisStatus: "completed",
       analysisError: undefined,
       updatedAt: Date.now(),

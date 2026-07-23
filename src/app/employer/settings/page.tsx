@@ -109,6 +109,7 @@ export default function SettingsPage() {
         userId,
         name: profileForm.name,
         email: profileForm.email,
+        phone: profileForm.phone,
         clerkId: userId,
       });
       toast.success("Profile updated successfully!");
@@ -128,6 +129,10 @@ export default function SettingsPage() {
         userId,
         companyName: companyForm.companyName,
         website: companyForm.website,
+        industry: companyForm.industry,
+        size: companyForm.size,
+        description: companyForm.description,
+        location: companyForm.location,
       });
       toast.success("Company settings updated!");
     } catch (error) {

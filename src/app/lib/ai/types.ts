@@ -432,6 +432,7 @@ export interface BiasReport {
   score: Score;
   passed: boolean;
   anonymized: string;
+  issues?: Array<{ type: string; severity: "LOW" | "MEDIUM" | "HIGH"; suggestion: string; evidence: string }>;
 }
 export interface ScoringWeights {
   skills: number;
