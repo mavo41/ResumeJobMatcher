@@ -36,6 +36,7 @@ import {
   FileCheck
 } from "lucide-react";
 import AtsScoreCard from "../../components/AtsScoreCard";
+import JobMatchExplanation from "@/app/components/JobMatchExplanation";
 
 type FeedbackTip = {
   type: "good" | "improve" | "warning";
@@ -47,6 +48,25 @@ type FeedbackCategory = {
   score: number;
   tips: FeedbackTip[];
 };
+
+interface Suggestion {
+  section: "summary" | "experience" | "skills" | "projects";
+  current: string;
+  suggested: string;
+  reasoning: string;
+  basedOn: string;
+  estimatedPointImpact: number;
+}
+
+interface GenuineGap {
+  requirement: string;
+  note: string;
+}
+
+interface TailorResult {
+  suggestions: Suggestion[];
+  genuineGaps: GenuineGap[];
+}
 
 export default function ResultsPage({ 
   params 
@@ -62,13 +82,36 @@ export default function ResultsPage({
   const [fileError, setFileError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<any>(null);
 
+  const [tailorResult, setTailorResult] = useState<TailorResult | null>(null);
+    const [tailoring, setTailoring] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [acceptedIndices, setAcceptedIndices] = useState<Set<number>>(new Set());
+    const [rejectedIndices, setRejectedIndices] = useState<Set<number>>(new Set());
+  
+
   const resumeData = useQuery(
     api.resumes.getResume,
     id ? { id: id as Id<"resumes"> } : "skip"
   );
   
   const updateResumeFeedback = useMutation(api.resumes.updateResumeFeedback);
+  const tailorResume = useAction(api.resumeTailoring.tailorResumeForJob);
+  
+  const applyTailoredChanges = useMutation(api.resumes.applyTailoredChanges);
+  const isLocked = useQuery(
+    api.applications.isResumeLockedBySubmission,
+    resumeData?.fileStorageId ? { fileStorageId: resumeData.fileStorageId } : "skip"
+  );
 
+    //  Derived values (safe even before resumeData resolves) ──
+    const totalPointsGained = tailorResult
+      ? Array.from(acceptedIndices).reduce(
+          (sum, idx) => sum + (tailorResult.suggestions[idx]?.estimatedPointImpact || 0),
+          0
+        )
+      : 0;
+  
+  
   // Log resume data for debugging
   useEffect(() => {
     if (resumeData) {
@@ -168,6 +211,68 @@ export default function ResultsPage({
     setIsAnalyzing(false);
   }
 };
+
+const handleTailor = async () => {
+    if (!resumeData) return;
+    setTailoring(true);
+    try {
+      const result = await tailorResume({
+        resumeId: id as Id<"resumes">,
+        jobTitle: resumeData.jobTitle,
+        jobDescription: resumeData.jobDescription,
+      });
+      setTailorResult(result);
+      setAcceptedIndices(new Set());
+      setRejectedIndices(new Set());
+    } catch (e: any) {
+      toast.error(e.message || "Failed to generate tailoring suggestions");
+    } finally {
+      setTailoring(false);
+    }
+  };
+
+  const handleAccept = (index: number, points: number) => {
+    setAcceptedIndices((prev) => new Set(prev).add(index));
+    setRejectedIndices((prev) => {
+      const next = new Set(prev);
+      next.delete(index);
+      return next;
+    });
+    toast.success(`+${points} optimization points added!`);
+  };
+
+  const handleRejectSuggestion = (index: number) => {
+    setRejectedIndices((prev) => new Set(prev).add(index));
+    setAcceptedIndices((prev) => {
+      const next = new Set(prev);
+      next.delete(index);
+      return next;
+    });
+  };
+
+  const handleSubmitUpdatedCv = async () => {
+    if (!tailorResult) return;
+    if (isLocked) {
+      toast.error("This resume is attached to a submitted application and can't be modified.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const finalAcceptedSuggestions = tailorResult.suggestions.filter((_, idx) => acceptedIndices.has(idx));
+      await applyTailoredChanges({
+        resumeId: id as Id<"resumes">,
+        acceptedSuggestions: finalAcceptedSuggestions,
+        totalPointsGained,
+      });
+      toast.success(`CV updated (+${totalPointsGained} points)! Re-analyzing...`);
+      await handleReAnalyze();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to submit updated resume data.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
 
   // Handle not signed in
   if (!isLoaded) {
@@ -322,11 +427,14 @@ export default function ResultsPage({
   const atsScore = normalized.ATS?.score ?? 0;
   const resumeQualityScore = normalized.overallScore ?? atsScore;
   const jobMatchScore = resumeData.jobMatchScore;
-
-  // Get category entries for rendering
   const categoryEntries = Object.entries(normalized).filter(
-    ([key, value]) => key !== "overallScore" && value && typeof value !== 'number'
+    ([key, value]) => key !== "overallScore" && value && typeof value !== "number"
   ) as [string, FeedbackCategory][];
+
+  
+
+  // // 5. Conditions
+  // const isSubmissionGated = application?.submitted === true;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -434,7 +542,8 @@ export default function ResultsPage({
             </div>
           </div>
         </div>
-
+         
+         {/* Two-Score Gauges */}
         <div className="flex justify-center gap-16 flex-wrap">
           <div className="text-center">
             <ScoreGauge value={resumeQualityScore} />
@@ -453,15 +562,171 @@ export default function ResultsPage({
             </div>
           )}
         </div>
-        {typeof jobMatchScore === "number" && Math.abs(resumeQualityScore - jobMatchScore) > 25 && (
-          <div className="max-w-2xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-            Your resume is well-written (Quality: {resumeQualityScore}%), but it doesn't closely match this
-            specific role's stated requirements (Match: {jobMatchScore}%) — that gap explains why you may not
-            be shortlisted for <em>this</em> posting, even though your resume itself is strong.
-          </div>
+        {typeof jobMatchScore === "number" && resumeData.jobMatchBreakdown && (
+          <JobMatchExplanation
+            resumeQualityScore={resumeQualityScore}
+            jobMatchScore={jobMatchScore}
+            breakdown={resumeData.jobMatchBreakdown}
+          />
         )}
 
-        {/* Main Content - Split Panel Layout */}
+        {!tailorResult && resumeData.appliedTailoringSuggestions && resumeData.appliedTailoringSuggestions.length > 0 && (
+  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
+    ✓ You previously applied {resumeData.appliedTailoringSuggestions.length} tailoring suggestion(s)
+    (+{resumeData.tailoringPointsGained} points). Manually update your resume/resume-builder draft to reflect
+    these changes, then re-upload if you'd like a fresh analysis.
+  </div>
+)}
+
+      
+       {/* Tailoring Section */}
+    <div className="max-w-4xl mx-auto p-6 space-y-8">
+      {/* Generate Trigger */}
+{isLocked && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <span>
+                This resume is attached to a submitted application, so tailoring changes can't be applied to it.
+                You can still view suggestions for reference, but to use them, upload a new version of your resume.
+              </span>
+            </div>
+          )}
+          {!tailorResult && !isLocked && (
+                    <button 
+          onClick={handleTailor} 
+          disabled={tailoring}
+          className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+        >
+          {tailoring ? "Analyzing Experience..." : "Analyze & Tailor Resume"}
+        </button>
+      )}
+      {!tailorResult && isLocked && (
+            <button
+              onClick={handleTailor}
+              disabled={tailoring}
+              className="px-4 py-2 bg-slate-200 text-slate-600 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              {tailoring ? "Analyzing..." : "View Suggestions (Read-only)"}
+            </button>
+          )}
+
+      {tailorResult && (
+        <>
+          {/* Header & Score Tracker */}
+          <div className="flex justify-between items-center border-b pb-4">
+            <div>
+              <h2 className="text-2xl font-bold">Resume Enhancements</h2>
+              <p className="text-gray-500">Align your existing experience to the job requirements transparently.</p>
+            </div>
+            <div className="bg-green-50 text-green-700 border border-green-200 px-4 py-2 rounded-xl text-center font-semibold">
+              <div className="text-xs uppercase tracking-wide opacity-70">Impact Score</div>
+              <div className="text-xl">+{totalPointsGained} Points</div>
+            </div>
+          </div>
+
+          {/* Suggestions List */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-800">Tailoring Suggestions</h3>
+            {tailorResult.suggestions.map((suggestion, index) => {
+              const isAccepted = acceptedIndices.has(index);
+              const isRejected = rejectedIndices.has(index);
+
+              return (
+                <div 
+                  key={index} 
+                  className={`border rounded-xl p-5 transition-all ${
+                    isAccepted ? "border-green-300 bg-green-50/30" : 
+                    isRejected ? "border-gray-200 bg-gray-50/50 opacity-60" : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="px-2.5 py-1 text-xs font-semibold rounded bg-gray-100 uppercase text-gray-600">
+                      {suggestion.section}
+                    </span>
+                    <span className="text-xs font-medium text-green-600">
+                      +{suggestion.estimatedPointImpact} impact pts
+                    </span>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4 my-3 text-sm">
+                    <div className="p-3 bg-red-50/40 border border-red-100 rounded-lg">
+                      <span className="block text-xs font-bold text-red-500 mb-1">CURRENT TEXT</span>
+                      <p className="text-gray-700 italic">"{suggestion.current}"</p>
+                    </div>
+                    <div className="p-3 bg-green-50/40 border border-green-100 rounded-lg">
+                      <span className="block text-xs font-bold text-green-600 mb-1">SUGGESTED REPHRASING</span>
+                      <p className="text-gray-800 font-medium">"{suggestion.suggested}"</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-xs text-gray-600 space-y-1 border-t pt-3">
+                    <p><strong>Reasoning:</strong> {suggestion.reasoning}</p>
+                    <p><strong>Verified Source Context:</strong> <span className="italic text-gray-500">"{suggestion.basedOn}"</span></p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => handleRejectSuggestion(index)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded border transition ${
+                        isRejected ? "bg-gray-200 border-gray-300 text-gray-700" : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {isRejected ? "Rejected" : "Skip"}
+                    </button>
+                    <button
+                      onClick={() => handleAccept(index, suggestion.estimatedPointImpact)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded border transition ${
+                        isAccepted ? "bg-green-600 border-green-600 text-white" : "bg-white border-green-600 text-green-600 hover:bg-green-50"
+                      }`}
+                    >
+                      {isAccepted ? "Accepted ✓" : "Accept Rephrasing"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Honest Gaps Block */}
+          {tailorResult.genuineGaps.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2 text-amber-800">
+                <span className="text-lg">⚠️</span>
+                <h3 className="font-bold text-sm uppercase tracking-wider">Honest Qualification Gaps</h3>
+              </div>
+              <p className="text-xs text-amber-700">
+                The target job description requires the following skills or milestones. Your current profile does not verifiably confirm them. To preserve integrity, these elements have been safely sequestered and <strong>must not be fabricated</strong>.
+              </p>
+              <ul className="divide-y divide-amber-200 text-sm">
+                {tailorResult.genuineGaps.map((gap, index) => (
+                  <li key={index} className="py-2.5 first:pt-0 last:pb-0">
+                    <span className="font-semibold block text-amber-900">{gap.requirement}</span>
+                    <span className="text-xs text-amber-700/80">{gap.note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {acceptedIndices.size > 0 && (
+                          <button
+                            onClick={handleSubmitUpdatedCv}
+                            disabled={submitting || isLocked}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl flex items-center justify-center gap-2"
+                          >
+                            {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+{submitting
+                    ? "Submitting..."
+                    : isLocked
+                    ? "Locked — Resume Already Submitted"
+                    : `Submit Updated CV (+${totalPointsGained} points)`}                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+          
+     {/* Main Content - Split Panel Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Resume Preview - Left Panel */}
           <div className="lg:col-span-5">
@@ -630,12 +895,7 @@ export default function ResultsPage({
                   );
                 })}
               </Accordion>
-            </div>
-
-            
-
-
-
+            </div>  
           </div>
         </div>
       </div>

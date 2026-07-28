@@ -31,6 +31,7 @@ import { toast } from "react-hot-toast";
 import Link from "next/link";
 import { Button } from "../../../components/ui/button";
 import { Skeleton } from "../../../components/ui/Skeleton";
+import RubricEditor from "../../components/RubricEditor";
 
 export default function EmployerJobDetailPage() {
   const { jobId } = useParams();
@@ -139,6 +140,15 @@ export default function EmployerJobDetailPage() {
         <ArrowLeft className="h-4 w-4" />
         Back to Jobs
       </Link>
+      {job.rubricLocked && (
+  <span className="text-xs text-zinc-500">🔒 Scoring rubric locked — {job.scoringWeights?.skills}% skills, {job.scoringWeights?.experience}% experience, ...</span>
+)}
+
+<RubricEditor
+  jobId={job._id}
+  initialWeights={job.scoringWeights}
+  locked={!!job.rubricLocked}
+/>
 
       {/* Job Header */}
       <div className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-6 md:p-8 mb-6">

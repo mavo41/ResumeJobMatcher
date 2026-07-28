@@ -327,3 +327,19 @@ export const getApplicationInternal = internalQuery({
   args: { applicationId: v.id("applications") },
   handler: async (ctx, { applicationId }) => ctx.db.get(applicationId),
 });
+
+export const isResumeLockedBySubmission = query({
+  args: { fileStorageId: v.id("_storage") },
+  handler: async (ctx, { fileStorageId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return false;
+
+    const app = await ctx.db
+      .query("applications")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .filter((q) => q.and(q.eq(q.field("resumeFileId"), fileStorageId), q.eq(q.field("submitted"), true)))
+      .first();
+
+    return !!app;
+  },
+});

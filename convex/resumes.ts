@@ -1,5 +1,5 @@
 // convex/resumes.ts
-import { mutation, internalMutation, action, query } from "./_generated/server";
+import { mutation, internalMutation, action, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -253,6 +253,7 @@ export const scheduleAnalysis = mutation({
     fileStorageId: v.id("_storage"),
     jobTitle: v.string(),
     jobDescription: v.string(),
+    jobId: v.optional(v.id("jobs")),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -276,6 +277,7 @@ export const scheduleAnalysis = mutation({
       fileStorageId: args.fileStorageId,
       jobTitle: args.jobTitle,
       jobDescription: args.jobDescription,
+      jobId: args.jobId,
     });
 
     return { scheduled: true };
@@ -311,15 +313,79 @@ export const completeAnalysis = internalMutation({
     feedback: v.any(),
     jobMatchScore: v.optional(v.number()),
     jobMatchBreakdown: v.optional(v.any()),
+    jobMatchError: v.optional(v.string()),
   },
-  handler: async (ctx, { resumeId, feedback, jobMatchScore, jobMatchBreakdown }) => {
+  handler: async (ctx, { resumeId, feedback, jobMatchScore, jobMatchBreakdown, jobMatchError }) => {
     await ctx.db.patch(resumeId, {
       feedback,
       jobMatchScore,
       jobMatchBreakdown,
+      jobMatchError,
       analysisStatus: "completed",
       analysisError: undefined,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const getResumeInternal = internalQuery({
+  args: { id: v.id("resumes") },
+  handler: async (ctx, { id }) => {
+    return await ctx.db.get(id);
+  },
+});
+
+export const applyTailoredChanges = mutation({
+  args: {
+    resumeId: v.id("resumes"),
+    acceptedSuggestions: v.array(
+      v.object({
+        section: v.string(),
+        current: v.string(),
+        suggested: v.string(),
+        reasoning: v.string(),
+        basedOn: v.string(),
+        estimatedPointImpact: v.number(),
+      })
+    ),
+    totalPointsGained: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const resume = await ctx.db.get(args.resumeId);
+    if (!resume || resume.userId !== identity.subject) {
+      throw new Error("Forbidden: You don't own this resume");
+    }
+
+    // Gate: block applying new tailoring changes once this resume is
+    // attached to a REAL submitted application. Editing guidance after
+    // an employer has already received the application would let a
+    // candidate silently change what was actually submitted.
+    const linkedSubmittedApplication = await ctx.db
+      .query("applications")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("resumeFileId"), resume.fileStorageId),
+          q.eq(q.field("submitted"), true)
+        )
+      )
+      .first();
+
+    if (linkedSubmittedApplication) {
+      throw new Error(
+        "This resume is attached to a submitted application. You can't apply tailoring changes to a resume that's already been submitted to an employer — upload a new version instead."
+      );
+    }
+
+    await ctx.db.patch(args.resumeId, {
+      appliedTailoringSuggestions: args.acceptedSuggestions,
+      tailoringPointsGained: args.totalPointsGained,
+      updatedAt: Date.now(),
+    });
+
+    return { applied: args.acceptedSuggestions.length, totalPointsGained: args.totalPointsGained };
   },
 });

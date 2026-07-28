@@ -1,6 +1,7 @@
 // lib/ai/BiasMitigator.ts
 import { BiasReport } from './types';
-type RemovedFieldType = "name" | "email" | "phone" | "address" | "gender" | "age" | "religion" | "nationality" | "photo";
+type RemovedFieldType = "name" | "email" | "phone" | "address" | "gender" | "age" | "religion" | "nationality" | "photo" | "institution";
+const INSTITUTION_PATTERN = /\b([A-Z][A-Za-z.&\s]*(?:University|Institute|College|Polytechnic|School of [A-Za-z\s]+))\b/g;
 
 
 export class BiasMitigator {
@@ -66,6 +67,19 @@ export class BiasMitigator {
       });
     }
 
+     const institutionMatches = anonymized.match(INSTITUTION_PATTERN);
+    if (institutionMatches && institutionMatches.length > 0) {
+      const uniqueInstitutions = Array.from(new Set(institutionMatches));
+      anonymized = anonymized.replace(INSTITUTION_PATTERN, "[ACCREDITED INSTITUTION]");
+      issues.push({
+        type: "Potential institution-prestige bias",
+        severity: "LOW",
+        suggestion: "Evaluate candidates on degree, field, and coursework rather than institution name/prestige.",
+        evidence: `Found ${uniqueInstitutions.length} institution name(s): ${uniqueInstitutions.join(", ")}`,
+      });
+    }
+
+
     for (const [type, pattern] of Object.entries(this.patterns)) {
      
       const matches = text.match(pattern);
@@ -103,9 +117,9 @@ export class BiasMitigator {
     const report = this.anonymize(text);
     
     const fields: Array<{ type: RemovedFieldType; originalValue?: string; replacement: string }> = [];
-    const knownTypes: RemovedFieldType[] = ["name", "email", "phone", "address", "gender", "age", "religion", "nationality", "photo"];
-    for (const issue of (report as any).issues || []) {
-    const cleaned = issue.type.replace("Potential ", "").replace(" bias", "").trim().toLowerCase();
+    const knownTypes: RemovedFieldType[] = ["name", "email", "phone", "address", "gender", "age", "religion", "nationality", "photo", "institution"];    for (const issue of (report as any).issues || []) {
+      let cleaned = issue.type.replace("Potential ", "").replace(" bias", "").trim().toLowerCase();
+      if (cleaned.includes("institution")) cleaned = "institution";
       if (!knownTypes.includes(cleaned as RemovedFieldType)) continue; // skip anything outside the schema's known set
       const fieldType = cleaned as RemovedFieldType;
       fields.push({ type: fieldType, replacement: fieldType === "name" ? "[NAME]" : `[REMOVED_${fieldType.toUpperCase()}]` });

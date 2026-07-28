@@ -3,7 +3,7 @@ import { action, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-
+import { checkJobDescriptionBias } from "../src/app/lib/ai/JobDescriptionBiasChecker";
 
 // Create a new job (auth-aware)
 export const createJob = mutation({
@@ -17,6 +17,14 @@ export const createJob = mutation({
     description: v.string(),
     requirements: v.optional(v.array(v.string())),
     salaryRange: v.optional(v.string()),
+     scoringWeights: v.optional(v.object({
+          skills: v.number(),
+          experience: v.number(),
+          education: v.number(),
+          projects: v.number(),
+          certifications: v.number(),
+          achievements: v.number(),
+        })),
     status: v.union(
       v.literal("open"), 
       v.literal("closed"), 
@@ -71,6 +79,8 @@ export const createJob = mutation({
 
     }
 
+    const biasReport = checkJobDescriptionBias(args.description, args.requirements || []);
+
     const jobId = await ctx.db.insert("jobs", {
       title: args.title,
       company: employer.companyName,
@@ -89,7 +99,8 @@ export const createJob = mutation({
       removedAt: undefined,
       removedBy: undefined,
       removalReason: undefined,
-
+      biasCheckScore: biasReport.score,
+      biasCheckRisk: biasReport.overallRisk,
 
     });
     await ctx.db.insert("auditLogs", {
@@ -426,6 +437,111 @@ export const getAverageTimeToHire = query({
     }, 0);
 
     return Math.round(totalDays / applications.length);
+  },
+});
+
+export const checkJobBias = query({
+  args: { description: v.string(), requirements: v.optional(v.array(v.string())) },
+  handler: async (ctx, { description, requirements }) => {
+    return checkJobDescriptionBias(description, requirements || []);
+  },
+});
+
+export const setJobRubric = mutation({
+  args: {
+    jobId: v.id("jobs"),
+    weights: v.object({
+      skills: v.number(),
+      experience: v.number(),
+      education: v.number(),
+      projects: v.number(),
+      certifications: v.number(),
+      achievements: v.number(),
+    }),
+  },
+  handler: async (ctx, { jobId, weights }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const job = await ctx.db.get(jobId);
+    if (!job || job.employerId !== identity.subject) throw new Error("Forbidden");
+
+    if (job.rubricLocked) {
+      throw new Error("This job's rubric is locked because candidates have already been scored against it. Standardized evaluation requires the same criteria for every applicant.");
+    }
+
+    const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+    if (Math.abs(sum - 100) > 0.5) {
+      throw new Error(`Weights must sum to 100 (currently ${sum}).`);
+    }
+
+    await ctx.db.patch(jobId, { scoringWeights: weights, updatedAt: Date.now() });
+  },
+});
+
+export const lockJobRubric = internalMutation({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, { jobId }) => {
+    const job = await ctx.db.get(jobId);
+    if (!job) return;
+    const defaultWeights = { skills: 35, experience: 25, education: 15, projects: 12, certifications: 8, achievements: 5 };
+    await ctx.db.patch(jobId, {
+      rubricLocked: true,
+      scoringWeights: job.scoringWeights || defaultWeights,
+    });
+  },
+});
+
+export const getScoringOutcomeCorrelation = query({
+  args: { employerId: v.string() },
+  handler: async (ctx, { employerId }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || identity.subject !== employerId) throw new Error("Unauthorized");
+
+    const applications = await ctx.db
+      .query("applications")
+      .withIndex("by_employerId", (q) => q.eq("employerId", employerId))
+      .filter((q) => q.neq(q.field("matchScore"), undefined))
+      .collect();
+
+    if (applications.length < 5) {
+      return { insufficientData: true, sampleSize: applications.length };
+    }
+
+    // Bucket by score range, compute hire rate per bucket — this is
+    // the actual "does a higher score correlate with actually getting
+    // hired" answer, expressed simply enough to act on without needing
+    // a statistics background to interpret.
+    const buckets = [
+      { label: "0-40%", min: 0, max: 40, total: 0, hired: 0 },
+      { label: "40-60%", min: 40, max: 60, total: 0, hired: 0 },
+      { label: "60-80%", min: 60, max: 80, total: 0, hired: 0 },
+      { label: "80-100%", min: 80, max: 101, total: 0, hired: 0 },
+    ];
+
+    for (const app of applications) {
+      const score = app.matchScore || 0;
+      const bucket = buckets.find((b) => score >= b.min && score < b.max);
+      if (bucket) {
+        bucket.total++;
+        if (app.status === "accepted") bucket.hired++;
+      }
+    }
+
+    const results = buckets.map((b) => ({
+      label: b.label,
+      total: b.total,
+      hired: b.hired,
+      hireRate: b.total > 0 ? Math.round((b.hired / b.total) * 100) : 0,
+    }));
+
+    // Simple, honest signal: is hire rate monotonically increasing with
+    // score bucket? If yes, the score is doing its job. If not, that's
+    // a real, actionable finding worth surfacing rather than hiding.
+    const nonEmpty = results.filter((r) => r.total > 0);
+    const isMonotonic = nonEmpty.every((r, i) => i === 0 || r.hireRate >= nonEmpty[i - 1].hireRate);
+
+    return { insufficientData: false, sampleSize: applications.length, buckets: results, scoringAppearsPredictive: isMonotonic };
   },
 });
 

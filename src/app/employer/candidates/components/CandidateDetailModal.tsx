@@ -348,6 +348,9 @@ export default function CandidateDetailModal({ isOpen, onClose, candidate }: Can
                   {candidate.analysisSummary.topWeaknesses.length > 0 && (
                     <p><strong>Areas for review:</strong> {candidate.analysisSummary.topWeaknesses.join(", ")}</p>
                   )}
+                  {(!candidate.analysisSummary.topStrengths?.length && !candidate.analysisSummary.topWeaknesses?.length) && (
+                    <p className="text-xs text-zinc-500">No specific strengths/weaknesses were extracted for this candidate — the match score above is still valid, but the detailed breakdown may be limited for this resume format.</p>
+                  )}
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-zinc-500">This candidate hasn't been analyzed yet.</p>

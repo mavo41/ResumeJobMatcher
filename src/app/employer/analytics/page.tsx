@@ -50,7 +50,7 @@ export default function AnalyticsPage() {
     api.applications.getEmployerApplications,
     userId ? { employerId: userId } : "skip"
   );
-
+  const correlation = useQuery(api.jobs.getScoringOutcomeCorrelation, userId ? { employerId: userId } : "skip");
   const jobIds = jobs?.map((j: any) => j._id) ?? [];
   const viewCounts = useQuery(
     api.jobs.getJobViewCounts,
@@ -200,6 +200,33 @@ export default function AnalyticsPage() {
           );
         })}
       </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900/50">
+  <h3 className="font-semibold mb-1">Does Match Score Predict Hiring?</h3>
+  <p className="text-sm text-zinc-500 mb-4">Hire rate by score range, across your full hiring history</p>
+  {correlation?.insufficientData ? (
+    <p className="text-sm text-zinc-400">Need at least 5 scored applications to compute this (currently {correlation.sampleSize}).</p>
+  ) : correlation && correlation.buckets ? (
+    <>
+      <div className="space-y-2">
+        {correlation.buckets.map((b: any) => (
+          <div key={b.label} className="flex items-center gap-3">
+            <span className="text-sm w-20">{b.label}</span>
+            <div className="flex-1 h-3 rounded-full bg-zinc-100">
+              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${b.hireRate}%` }} />
+            </div>
+            <span className="text-sm w-24 text-right">{b.hireRate}% ({b.hired}/{b.total})</span>
+          </div>
+        ))}
+      </div>
+      <p className={`text-sm mt-4 ${correlation.scoringAppearsPredictive ? "text-emerald-600" : "text-amber-600"}`}>
+        {correlation.scoringAppearsPredictive
+          ? "✓ Higher scores correlate with higher hire rates for your postings — the scoring appears predictive."
+          : "⚠ Hire rate isn't consistently increasing with score — this may mean the scoring criteria don't fully capture what you value, or your sample is still small."}
+      </p>
+    </>
+  ) : null}
+</div>
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

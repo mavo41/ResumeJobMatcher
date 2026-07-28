@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@clerk/nextjs";
 import { Id } from "../../../convex/_generated/dataModel";
+import RubricEditor, { ScoringWeights } from "../employer/components/RubricEditor";
 
 type FormData = {
   title: string;
@@ -26,9 +27,17 @@ export default function PostJob() {
   const user = useQuery(api.users.getUser, userId ? { userId } : "skip");
   const createJob = useMutation(api.jobs.createJob);
   const generateUploadUrl = useMutation(api.jobs.generateUploadUrl);
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormData>();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<FormData>();  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rubricWeights, setRubricWeights] = useState<ScoringWeights | undefined>(undefined);
+
+const description = watch("description");
+  const requirementsRaw = watch("requirements");
+  const biasReport = useQuery(
+      api.jobs.checkJobBias,
+      description && description.length > 20
+        ? { description, requirements: (requirementsRaw || "").split(",").map((r: string) => r.trim()).filter(Boolean) }
+        : "skip"
+    );
   const employerProfile = useQuery(
     api.employers.getEmployerByUserId,
     userId ? { userId } : "skip"
@@ -94,6 +103,7 @@ export default function PostJob() {
         salaryRange: data.salaryRange || undefined,
         logoUrl,
         status: "draft",
+        scoringWeights: rubricWeights,
         createdAt: now,
         updatedAt: now,
       });
@@ -204,6 +214,7 @@ export default function PostJob() {
             Requirements <span className="text-red-500">*</span>
           </label>
           <textarea
+
             {...register("requirements", { required: "Requirements are required" })}
             rows={10} cols={200}
             placeholder="e.g., 5+ years React, TypeScript, Leadership experience"
@@ -211,6 +222,29 @@ export default function PostJob() {
           />
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Separate requirements with commas</p>
           {errors.requirements && <p className="mt-1.5 text-sm text-red-500">{errors.requirements.message}</p>}
+          {biasReport && biasReport.flags.length > 0 && (
+  <div className={`rounded-xl border p-4 space-y-2 ${
+    biasReport.overallRisk === "HIGH" ? "border-rose-300 bg-rose-50" :
+    biasReport.overallRisk === "MEDIUM" ? "border-amber-300 bg-amber-50" :
+    "border-zinc-200 bg-zinc-50"
+  }`}>
+    <p className="text-sm font-semibold">
+      ⚠️ Potential bias detected in this posting ({biasReport.overallRisk} risk)
+    </p>
+    <p className="text-xs text-zinc-600">
+      This is advisory only — you can still publish as-is. Reviewing these may help you reach a wider, more qualified applicant pool.
+    </p>
+    <ul className="space-y-1.5 text-sm">
+      {biasReport.flags.map((f: any, i: number) => (
+        <li key={i} className="border-l-2 border-current pl-2">
+          <strong>"{f.phrase}"</strong> — {f.explanation}
+          <br />
+          <span className="text-xs text-zinc-500">💡 {f.suggestion}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
         </div>
 
         {/* Two Column for Salary and Logo */}
@@ -240,6 +274,18 @@ export default function PostJob() {
             />
           </div>
         </div>
+        <div className="border-t pt-6">
+  <h3 className="font-semibold mb-2">Scoring Rubric (optional)</h3>
+  <p className="text-sm text-zinc-500 mb-4">
+    Set how candidates are weighted for this job. Locks automatically once your first applicant is scored, ensuring every candidate is judged by the same standard.
+  </p>
+  {/* five number inputs for skills/experience/education/projects/certifications/achievements,
+      summing-to-100 validation client-side, calling setJobRubric on save */}
+</div>
+
+<div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
+  <RubricEditor onChange={setRubricWeights} />
+</div>
 
         {/* Submit Button */}
         <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">

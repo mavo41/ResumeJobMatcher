@@ -51,6 +51,8 @@ interface ResumeContextType {
   setCurrentSection: React.Dispatch<React.SetStateAction<string>>;
   downloadResume: () => void;
    previewRef: React.RefObject<HTMLDivElement | null>; //  allow null
+   selectedTemplate: "classic" | "modern";
+   setSelectedTemplate: React.Dispatch<React.SetStateAction<"classic" | "modern">>;
 }
 
 export const ResumeContext = createContext<ResumeContextType | undefined>(
@@ -63,7 +65,7 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentSection, setCurrentSection] = useState<string>("personalInfo");
   const previewRef = useRef<HTMLDivElement | null>(null);
-
+  const [selectedTemplate, setSelectedTemplate] = useState<"classic" | "modern">("classic");
 
   const updateResumeData = (section: keyof ResumeData, data: any) => {
     setResumeData((prev: ResumeData) => {
@@ -128,13 +130,31 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
            .set({
               margin: 10,
              filename: 'resume.pdf',
-              html2canvas: { scale: 2, useCORS: true },
+              html2canvas: { scale: 2, useCORS: true,foreignObjectRendering: true,},
               jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             })
             .save();
         })
-        .catch((error: Error) => console.error('PDF generation failed:', error));
-     };
+.catch(async (error: Error) => {
+          console.warn('PDF generation with foreignObjectRendering failed, retrying without it:', error);
+          
+          try {
+            const mod = await import('html2pdf.js');
+            const html2pdf = mod.default;
+            await html2pdf()
+              .from(element)
+              .set({
+                margin: 10,
+                filename: 'resume.pdf',
+                html2canvas: { scale: 2, useCORS: true, foreignObjectRendering: false },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+              })
+              .save();
+         } catch (fallbackError) {
+            console.error('PDF generation failed on both attempts:', fallbackError);
+          }
+        });
+          };
   
 
   return (
@@ -149,6 +169,8 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
           setCurrentSection,
           downloadResume,
         previewRef,
+        selectedTemplate,
+        setSelectedTemplate,
         }}
       >
         {children}

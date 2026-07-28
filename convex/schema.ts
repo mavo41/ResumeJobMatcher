@@ -208,6 +208,7 @@ notifications: defineTable({
         v.literal("religion"),
         v.literal("nationality"),
         v.literal("photo"),
+        v.literal("institution"),
       ),
       originalValue: v.optional(v.string()),
       replacement: v.string(),
@@ -404,7 +405,7 @@ embeddingsCache: defineTable({
   jobTitle: v.string(),
   jobDescription: v.string(),
   fileStorageId: v.id("_storage"),
-
+  jobMatchError: v.optional(v.string()),
   feedback: v.optional(
     v.object({
       overallScore: v.number(),
@@ -472,8 +473,19 @@ embeddingsCache: defineTable({
     analysisError: v.optional(v.string()),
     jobMatchScore: v.optional(v.number()),
     jobMatchBreakdown: v.optional(v.any()),
-
-
+    appliedTailoringSuggestions: v.optional(
+      v.array(
+        v.object({
+          section: v.string(),
+          current: v.string(),
+          suggested: v.string(),
+          reasoning: v.string(),
+          basedOn: v.string(),
+          estimatedPointImpact: v.number(),
+        })
+      )
+    ),
+    tailoringPointsGained: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
   userId: v.string(),
@@ -517,9 +529,18 @@ resumeAnalysisCache: defineTable({
     removalReason: v.optional(v.string()),// moderation reason
     source: v.optional(v.string()),
     externalUrl: v.optional(v.string()),
-  // Incremented once per job-detail-page view (see job/[jobId]/page.tsx).
-    //views: v.optional(v.number()),
-
+    views: v.optional(v.number()),
+    biasCheckScore: v.optional(v.number()),
+    biasCheckRisk: v.optional(v.union(v.literal("LOW"), v.literal("MEDIUM"), v.literal("HIGH"))),
+    scoringWeights: v.optional(v.object({
+      skills: v.number(),
+      experience: v.number(),
+      education: v.number(),
+      projects: v.number(),
+      certifications: v.number(),
+      achievements: v.number(),
+    })),
+    rubricLocked: v.optional(v.boolean()),
 
   }).index("by_status", ["status"])
   .index("by_employerId", ["employerId"])

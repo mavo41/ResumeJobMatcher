@@ -36,6 +36,7 @@ import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as restoreJob from "../restoreJob.js";
 import type * as resumeAnalysis from "../resumeAnalysis.js";
+import type * as resumeTailoring from "../resumeTailoring.js";
 import type * as resumes from "../resumes.js";
 import type * as secureHello from "../secureHello.js";
 import type * as settings from "../settings.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   restoreJob: typeof restoreJob;
   resumeAnalysis: typeof resumeAnalysis;
+  resumeTailoring: typeof resumeTailoring;
   resumes: typeof resumes;
   secureHello: typeof secureHello;
   settings: typeof settings;

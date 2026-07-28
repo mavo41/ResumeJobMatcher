@@ -33,6 +33,9 @@ export const analyzeCandidateApplication = internalAction({
         });
         return;
       }
+      if (!job.rubricLocked) {
+        await ctx.runMutation(internal.jobs.lockJobRubric, { jobId: args.jobId });
+      }
 
       const jobRequirements: JobRequirements = {
        jobRole: (job.title || "Unspecified Role").slice(0, 200),
@@ -87,6 +90,9 @@ export const analyzeCandidateApplication = internalAction({
       // candidate, regardless of whether an employer ever manually
       // reviews them.
       const pipeline = new AIPipeline();
+      if (job.scoringWeights) {
+        pipeline.setCustomWeights(job.scoringWeights);
+      }
       const result = await pipeline.processResume(
         extraction.text,
         jobRequirements,
@@ -109,6 +115,14 @@ export const analyzeCandidateApplication = internalAction({
         extractedSkills: result.parsedResume.skills.map((s) => s.name).slice(0, 30),
         extractedExperienceYears: result.parsedResume.experience.years,
         extractedLocation: result.parsedResume.contact.location,
+      });
+
+      console.log("[candidateScoring] Persisted analysis:", {
+        applicationId: args.applicationId,
+        matchScore: result.score.overall,
+        hasExplainability: !!result.score.explainability,
+        strongestFactorsCount: result.score.explainability?.strongestFactors?.length ?? 0,
+        recommendationsCount: result.recommendations?.length ?? 0,
       });
 
       if (job.employerId) {

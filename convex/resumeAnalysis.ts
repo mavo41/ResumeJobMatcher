@@ -73,47 +73,7 @@ Respond with ONLY a JSON object matching this exact shape (no prose, no markdown
 
 
 
-// async function callGroqWithFallback(
-//   prompt: string
-// ): Promise<{ text: string; modelUsed: string } | { error: string }> {
-//   const GROQ_KEY = process.env.GROQ_API_KEY;
-//   if (!GROQ_KEY) {
-//     return { error: "GROQ_API_KEY is not configured on this Convex deployment." };
-//   }
 
-//   const groq = new Groq({ apiKey: GROQ_KEY });
-//   const errors: string[] = [];
-
-//   for (const model of GROQ_MODELS_TO_TRY) {
-//     try {
-//       const completion = await groq.chat.completions.create({
-//         model,
-//        messages: [{ role: "user", content: prompt }],
-//         temperature: 0.4,
-//         response_format: { type: "json_object" },
-//        });
-
-//       const text = completion.choices[0]?.message?.content || "";
-//       if (text.trim().length > 0) {
-//         return { text, modelUsed: model };
-//       }
-//       errors.push(`${model}: empty response`);
-//     } catch (err: any) {
-//       const message = err?.message || String(err);
-//       errors.push(`${model}: ${message}`);
-//       // Quota errors (limit: 0) and 404s both mean "try the next model" —
-//       // continue the loop rather than aborting immediately.
-
-//       // Rate-limit or model-unavailable errors both mean "try the next
-//       // model" — continue the loop rather than aborting immediately.
-//       continue;
-//     }
-//   }
-
-//   return {
-//     error: `All Groq models failed. Details: ${errors.join(" | ")}`,
-//   };
-// }
 async function callGroqWithFallback(
   prompt: string
 ): Promise<{ text: string; modelUsed: string } | { error: string }> {
@@ -125,7 +85,30 @@ async function callGroqWithFallback(
  }
 }
 
+function extractRequirementsFromText(description: string): string[] {
+  const lines = description.split("\n").map((l) => l.trim());
+  const requirements: string[] = [];
 
+  const headingIdx = lines.findIndex((l) =>
+    /looking for|requirements|qualifications|what you.?ll need/i.test(l)
+  );
+  const candidateLines = headingIdx >= 0 ? lines.slice(headingIdx + 1) : lines;
+
+  for (const line of candidateLines) {
+    const bulletMatch = line.match(/^[*\-•]\s*(.+)/);
+    if (bulletMatch && bulletMatch[1].length > 3) {
+      requirements.push(bulletMatch[1].trim());
+    }
+    if (requirements.length >= 20) break;
+  }
+
+  if (requirements.length === 0) {
+    const techMatches = description.match(/\b[A-Z][a-zA-Z0-9.+#]{1,20}\b/g) || [];
+    return Array.from(new Set(techMatches)).slice(0, 15);
+  }
+
+  return requirements;
+}
 export const analyzeResume = internalAction({
   args: {
     resumeId: v.id("resumes"),
@@ -141,11 +124,7 @@ export const analyzeResume = internalAction({
         status: "processing",
       });
 
-      let requiredSkills: { name: string; mandatory: boolean }[] = [];
-    if (args.jobId) {
-      const job = await ctx.runQuery(api.jobs.getJobById, { jobId: args.jobId });
-      requiredSkills = (job?.requirements || []).map((r: string) => ({ name: r, mandatory: true }));
-    }
+    
 
       // 1. Fetch file from Convex storage
       const url = await ctx.storage.getUrl(args.fileStorageId);
@@ -222,25 +201,25 @@ export const analyzeResume = internalAction({
       const contentHash = createHash("sha256")
              .update(`${resumeText}::${args.jobTitle}::${args.jobDescription}`)
               .digest("hex");
-      
-            const cached = await ctx.runQuery(internal.analysisCache.get, { contentHash });
-            if (cached) {
-              await ctx.runMutation(internal.resumes.completeAnalysis, {
-                resumeId: args.resumeId,
-                feedback: cached.feedback,
-              });
-              return;
-            }
 
-            let jobMatchScore: number | null = null;
+              let jobMatchScore: number | null = null;
             let jobMatchBreakdown: any = null;
-            
-            if (args.jobTitle) {
+            let jobMatchError: string | null = null;               
+            let requiredSkills: { name: string; mandatory: boolean }[] = [];
+     
+            if (args.jobId) {
+        const job = await ctx.runQuery(api.jobs.getJobById, { jobId: args.jobId });
+        requiredSkills = (job?.requirements || []).map((r: string) => ({ name: r, mandatory: true }));
+      } else if (args.jobDescription) {
+        requiredSkills = extractRequirementsFromText(args.jobDescription).map((r) => ({ name: r, mandatory: true }));
+      }
+
+      if (args.jobTitle) {
               try {
                 const pipeline = new AIPipeline();
                 const jobRequirements = {
                   jobRole: args.jobTitle,
-                  requiredSkills: [], // resumeAnalysis.ts currently has no structured requirements list from free-text jobDescription; see note below
+                  requiredSkills, // resumeAnalysis.ts currently has no structured requirements list from free-text jobDescription; see note below
                   preferredSkills: [],
                   mandatorySkills: [],
                   certifications: [],
@@ -252,9 +231,23 @@ export const analyzeResume = internalAction({
                 jobMatchScore = result.score.overall;
                 jobMatchBreakdown = result.score.breakdown;
               } catch (err) {
-                console.warn("[resumeAnalysis] Job match scoring failed:", err);
+               console.error("[resumeAnalysis] Job match scoring failed:", err instanceof Error ? err.message : err);
+                jobMatchError = err instanceof Error ? err.message : "Unknown error computing job match";
               }
             }
+
+             const cached = await ctx.runQuery(internal.analysisCache.get, { contentHash });
+            if (cached) {
+              await ctx.runMutation(internal.resumes.completeAnalysis, {
+                resumeId: args.resumeId,
+                feedback: cached.feedback,
+                jobMatchScore: jobMatchScore ?? undefined,
+                jobMatchBreakdown: jobMatchBreakdown ?? undefined,
+                jobMatchError: jobMatchError ?? undefined,
+              });
+              return;
+            }
+
 
       // 3. Call Gemini with model fallback chain
       const prompt = buildPrompt(args.jobTitle, args.jobDescription, resumeText);
@@ -285,6 +278,9 @@ export const analyzeResume = internalAction({
       await ctx.runMutation(internal.resumes.completeAnalysis, {
         resumeId: args.resumeId,
         feedback,
+        jobMatchScore: jobMatchScore ?? undefined,
+        jobMatchBreakdown: jobMatchBreakdown ?? undefined,
+        jobMatchError: jobMatchError ?? undefined,
       });
 
        if (!("error" in groqResult)) {

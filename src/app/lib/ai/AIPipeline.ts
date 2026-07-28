@@ -31,6 +31,10 @@ export class AIPipeline {
   private qualityScorer = new ResumeQualityScore();
   private feedbackLearner = new FeedbackLearning(process.env.NEXT_PUBLIC_CONVEX_URL);
   
+  setCustomWeights(weights: Partial<import("./types").ScoringWeights>) {
+    this.scorer.resolveWeights(weights);
+  }
+
   async processResume(
     resumeText: string, 
     job: JobRequirements,
