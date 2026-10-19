@@ -12,6 +12,8 @@ import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { toast } from "react-hot-toast";
 
+export const dynamic = 'force-dynamic';
+
 export default function MessagesPage() {
   const { userId: employerId } = useAuth();
   const searchParams = useSearchParams();
