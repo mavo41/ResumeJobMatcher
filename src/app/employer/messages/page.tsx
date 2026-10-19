@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense  } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation } from "convex/react";
@@ -12,9 +12,8 @@ import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { toast } from "react-hot-toast";
 
-export const dynamic = 'force-dynamic';
 
-export default function MessagesPage() {
+function MessagesPageContent() {
   const { userId: employerId } = useAuth();
   const searchParams = useSearchParams();
 
