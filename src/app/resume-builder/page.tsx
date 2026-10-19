@@ -6,11 +6,13 @@ import React, { useState } from 'react';
 import ResumeBuilder from '../components/ResumeBuilder';
 import AIChat from '../components/AIChat';
 import { ResumeProvider } from '../context/ResumeContext';
+import { useRouter } from "next/navigation";
 
 export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(false); // Toggle between builder and chat
+const router = useRouter();
 
-  return (
+return (
     <ResumeProvider> {/* Wrapping with ResumeProvider to share context */}
       <div className="min-h-screen bg-gray-100 relative">
         {/* Pitch and Toggle */}
@@ -31,12 +33,13 @@ export default function Home() {
         
                 {/* Floating Chat Bubble */}
                 <button
-                  onClick={() => setIsChatOpen(true)}
-                  className="fixed bottom-4 right-4 w-20 h-20 bg-blue-500 width-90% height-90% text-white rounded-full flex items-center justify-center shadow-lg hover:bg-blue-600 transition z-50"
-                  title="Open AI Chat"
-                >
-                  🤖
-                </button>
+  onClick={() => router.push("/ai-assistant")}
+  className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-full flex items-center justify-center shadow-xl shadow-indigo-500/30 hover:shadow-2xl hover:shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all duration-200 z-50"
+  title="Open AI Chat Assistant"
+  aria-label="Open AI Chat Assistant"
+>
+  <span className="text-2xl">🤖</span>
+</button>
         
                 {/* AI Chat Overlay (Visible when isChatOpen is true) */}
                 {isChatOpen && (

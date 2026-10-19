@@ -90,11 +90,19 @@ const initialData: ResumeData = {
 };
 
 const ResumeBuilder: React.FC = () => {
-    const { resumeData, updateResumeData, downloadResume, previewRef } = useResumeContext();
+    const { resumeData, updateResumeData, downloadResume, previewRef, isHydrated, } = useResumeContext();
   
    const updateData = (section: keyof ResumeData, data: any) => {
      updateResumeData(section, data);
    };
+
+   if (!isHydrated) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500">
+        Loading your saved resume…
+      </div>
+    );
+  }
 
   
   return (

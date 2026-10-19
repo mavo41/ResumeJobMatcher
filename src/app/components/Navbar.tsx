@@ -89,7 +89,6 @@ const Navbar = () => {
     { href: "/jobboard", label: "Job Board", icon: ClipboardList },
     { href: "/results", label: "Feedback", icon: ThumbsUp },
     { href: "/messages", label: "Messages", icon: MessageSquare },
-    { href: "/secure-test", label: "Secure Test", icon: ShieldHalf },
   ];
 
   // Employer Navigation Items

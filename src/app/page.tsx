@@ -122,7 +122,6 @@ export default function HomePage() {
                 onClose={closeModal}
                 userId={userId}
               />
-      // If user is employer, go directly to post job
   
     <Link href="/post-job">
       <button className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors">

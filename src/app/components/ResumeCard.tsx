@@ -8,10 +8,11 @@ const ResumeCard = ({
   resume: { id, companyName, jobTitle, feedback, imagePath }
 }: { resume: Resume }) => {
   return (
-    <Link
-      href={`/resume/${id}`}
-      className="resume-card animate-in fade-in duration-1000 block"
-    >
+    // <Link
+    //   href={`/resume/${id}`}
+    //   className="resume-card animate-in fade-in duration-1000 block"
+    // >
+    <div className="resume-card animate-in fade-in duration-1000 block">
       {/* Header */}
       <div className="resume-card-header flex justify-between items-start mb-2">
         <div className="flex flex-col gap-1">
@@ -33,7 +34,8 @@ const ResumeCard = ({
           className="object-cover object-top w-full h-[350px] max-sm:h-[200px]"
         />
       </div>
-    </Link>
+      </div>
+    // </Link>
   );
 };
 

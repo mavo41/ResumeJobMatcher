@@ -1,10 +1,12 @@
 // context/ResumeContext.tsx
 "use client";
 
-
-import { createContext, useState, ReactNode, useContext, useRef } from 'react';
+import { createContext, useState, ReactNode, useContext, useEffect, useRef } from 'react';
 import { ResumeData } from '../components/ResumeBuilder'; // Import your type
 //import html2pdf from 'html2pdf.js';
+
+const STORAGE_KEY = 'resume-builder-draft-v1';
+const TEMPLATE_KEY = 'resume-builder-template-v1';
 
 const initialData: ResumeData = { 
   personalInfo: {
@@ -53,6 +55,8 @@ interface ResumeContextType {
    previewRef: React.RefObject<HTMLDivElement | null>; //  allow null
    selectedTemplate: "classic" | "modern";
    setSelectedTemplate: React.Dispatch<React.SetStateAction<"classic" | "modern">>;
+   isHydrated: boolean;
+  resetResume: () => void;
 }
 
 export const ResumeContext = createContext<ResumeContextType | undefined>(
@@ -66,6 +70,67 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
   const [currentSection, setCurrentSection] = useState<string>("personalInfo");
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<"classic" | "modern">("classic");
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as ResumeData;
+          // Shallow-merge with initialData so new keys added later
+          // don't crash on old drafts.
+          setResumeData({ ...initialData, ...parsed });
+        }
+        const savedTemplate = window.localStorage.getItem(TEMPLATE_KEY);
+        if (savedTemplate === "classic" || savedTemplate === "modern") {
+          setSelectedTemplate(savedTemplate);
+        }
+      } catch (err) {
+        console.warn("[ResumeContext] Failed to hydrate from localStorage:", err);
+      } finally {
+        setIsHydrated(true);
+      }
+    }, []);
+  
+    // --------------------------------------------------------------
+    // PERSIST: debounce writes so we don't hit localStorage on every
+    // keystroke. 400ms is snappy enough that a crash loses at most a
+    // couple of characters.
+    // --------------------------------------------------------------
+    useEffect(() => {
+      if (!isHydrated) return;
+      const handle = window.setTimeout(() => {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(resumeData));
+        } catch (err) {
+          console.warn("[ResumeContext] Failed to persist to localStorage:", err);
+        }
+      }, 400);
+      return () => window.clearTimeout(handle);
+    }, [resumeData, isHydrated]);
+  
+    // Persist template choice immediately (it's just a tiny string).
+    useEffect(() => {
+      if (!isHydrated) return;
+      try {
+        window.localStorage.setItem(TEMPLATE_KEY, selectedTemplate);
+      } catch (err) {
+        console.warn("[ResumeContext] Failed to persist template:", err);
+      }
+    }, [selectedTemplate, isHydrated]);
+  
+    const resetResume = () => {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(TEMPLATE_KEY);
+      } catch (err) {
+        console.warn("[ResumeContext] Failed to clear localStorage:", err);
+      }
+      setResumeData(initialData);
+      setMessages([]);
+      setCurrentSection("personalInfo");
+      setSelectedTemplate("classic");
+    };
 
   const updateResumeData = (section: keyof ResumeData, data: any) => {
     setResumeData((prev: ResumeData) => {
@@ -171,6 +236,8 @@ export const ResumeProvider = ({ children }: { children: ReactNode }) => {
         previewRef,
         selectedTemplate,
         setSelectedTemplate,
+        isHydrated,
+        resetResume,
         }}
       >
         {children}
