@@ -13,7 +13,7 @@ import { Button } from "../../components/ui/button";
 import { toast } from "react-hot-toast";
 
 
-function MessagesPageContent() {
+function MessagesContent() {
   const { userId: employerId } = useAuth();
   const searchParams = useSearchParams();
 
@@ -202,5 +202,19 @@ function MessagesPageContent() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-center">
+          Loading messages...
+        </div>
+      }
+    >
+      <MessagesContent />
+    </Suspense>
   );
 }

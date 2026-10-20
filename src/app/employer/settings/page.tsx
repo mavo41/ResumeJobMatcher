@@ -1,7 +1,7 @@
 // app/employer/settings/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense  } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
@@ -16,7 +16,7 @@ import { Input } from "../../components/ui/input";
 
 type SettingsTab = "profile" | "company" | "notifications" | "security";
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { userId } = useAuth();
   const { user: clerkUser } = useUser();
   const router = useRouter();
@@ -556,5 +556,25 @@ export default function SettingsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-6 p-6">
+          <Skeleton className="h-8 w-48" />
+          <div className="flex gap-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-10 w-32" />
+            ))}
+          </div>
+          <Skeleton className="h-96 w-full" />
+        </div>
+      }
+    >
+      <SettingsContent />
+    </Suspense>
   );
 }

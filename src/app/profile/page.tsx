@@ -1,3 +1,5 @@
+"use client";
+
 import ProfileHeader from "../components/ProfileHeader"
 import { useUser } from "@clerk/nextjs";
 
