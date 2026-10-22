@@ -1,7 +1,7 @@
 
 import { Suspense } from "react";
-import MessagesContent from "../MessagesContent/page";
 
+import MessagesContent from "@/components/employer/MessagesContent";
 export default function MessagesPage() {
   return (
     <Suspense
